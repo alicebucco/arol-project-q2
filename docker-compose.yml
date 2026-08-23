@@ -14,8 +14,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # Strumento di sviluppo per ispezionare il database da browser, non fa
-  # parte dell'architettura logica (docs/architecture/02-containers.md).
+  # Development tool for inspecting the database from a browser. It is not
+  # part of the logical architecture (docs/architecture/02-containers.md).
   adminer:
     image: adminer
     restart: unless-stopped
@@ -24,14 +24,16 @@ services:
     depends_on:
       - db
 
-  # Codice atteso in ./backend (FastAPI, punto d'ingresso main:app) — vedi
-  # docs/architecture/02-containers.md e docs/architecture/03-components.md
+  # Backend code is expected in ./backend (FastAPI entry point: main:app).
+  # See docs/architecture/02-containers.md and 03-components.md.
   backend:
     image: python:3.12-slim
     restart: unless-stopped
     working_dir: /app
     volumes:
       - ./backend:/app
+      - ./db:/db:ro
+      - ./data:/data:ro
     command: sh -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     env_file: .env
     ports:
@@ -40,8 +42,8 @@ services:
       db:
         condition: service_healthy
 
-  # Codice atteso in ./frontend (React + TypeScript, Vite) — vedi
-  # docs/architecture/02-containers.md
+  # Frontend code is expected in ./frontend (React + TypeScript, Vite).
+  # See docs/architecture/02-containers.md.
   frontend:
     image: node:20-alpine
     restart: unless-stopped

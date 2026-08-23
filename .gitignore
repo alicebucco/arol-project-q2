@@ -13,4 +13,9 @@ dist/
 .DS_Store          # File System macOS
 Thumbs.db          # File System Windows
 
-.env               # API keys
+# Local credentials and configuration.
+.env
+
+# AROL dataset and manuals: non-publishable course material.
+# Never add this directory or its contents to Git.
+data/

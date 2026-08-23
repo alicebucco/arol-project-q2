@@ -1,2 +1,2 @@
--- Abilita l'estensione usata per gli embedding dei manuali (docs/architecture/05-data-model.md, tabella manual_chunks)
+-- Enable the extension that will be used for manual embeddings in a later phase.
 CREATE EXTENSION IF NOT EXISTS vector;
