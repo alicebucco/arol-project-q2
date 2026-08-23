@@ -55,6 +55,7 @@ The synthetic dataset must be placed locally in `data/`:
 
 ```text
 data/
+├── AROL_GENERAL_CATALOGUE_11.0_EN_20230215.pdf
 ├── AROL_Q2_synthetic_fleet_dataset.xlsx
 └── manuals/
 ```
@@ -63,6 +64,11 @@ data/
 **not tracked, committed, pushed, or visible on GitHub**, including to repository
 collaborators. Each collaborator must obtain the dataset through an approved
 course/AROL channel and copy it into their own local `data/` directory.
+
+The general catalogue is useful for future product-level retrieval. It is not a
+substitute for the machine-specific manuals in `data/manuals/`: troubleshooting,
+safety, configuration, and maintenance guidance must use the manual matched to
+the physical machine's `serialNumber`.
 
 > **Restricted AROL course material.** The manuals in `data/manuals/` state
 > that they must not be uploaded to any website or public or private code
