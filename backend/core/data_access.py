@@ -131,6 +131,45 @@ async def get_maintenance_tickets(machine_id: str, limit: int) -> list[dict[str,
     ]
 
 
+def vector_literal(vector: list[float]) -> str:
+    """Format a parameter for pgvector without interpolating SQL."""
+    return "[" + ",".join(str(value) for value in vector) + "]"
+
+
+async def search_manual_chunks(
+    machine_id: str,
+    query_embedding: list[float],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Search only one authorised machine's manual using cosine similarity."""
+    query_vector = vector_literal(query_embedding)
+    async with connection() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                """
+                SELECT source_file, page, section, content,
+                       1 - (embedding <=> %s::vector) AS similarity
+                FROM manual_chunks
+                WHERE machine_id = %s
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+                """,
+                (query_vector, machine_id, query_vector, limit),
+            )
+            rows = await cursor.fetchall()
+    return [
+        {
+            "source": "manual",
+            "file": row[0],
+            "page": row[1],
+            "section": row[2],
+            "content": row[3],
+            "similarity": float(row[4]),
+        }
+        for row in rows
+    ]
+
+
 async def get_company_orders(company_id: str, limit: int) -> list[dict[str, Any]]:
     """Return orders belonging to one company."""
 

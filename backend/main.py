@@ -1,5 +1,7 @@
 """FastAPI entry point for the AROL Customer Platform backend."""
 
+from typing import Literal
+
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
@@ -11,6 +13,7 @@ from core.llm import LlmNotConfiguredError, LlmRequestError, generate_chat_reply
 from agents.iot import recent_alarms, telemetry
 from agents.service import maintenance_tickets
 from agents.orders import orders, quotes
+from agents.manuals import ManualsUnavailableError, search as search_manual
 
 
 app = FastAPI(title="AROL Customer Platform API", version="0.1.0")
@@ -85,6 +88,19 @@ class QuoteRecord(BaseModel):
     revision_status: str | None = None
     discount_rate: float | None = None
     line_total: float
+
+
+class ManualCitation(BaseModel):
+    source: Literal["manual"]
+    file: str
+    page: int
+    section: str
+
+
+class ManualSearchResult(BaseModel):
+    citation: ManualCitation
+    content: str
+    similarity: float
 
 
 @app.get("/health")
@@ -246,6 +262,51 @@ async def machine_maintenance_tickets(
         MaintenanceTicketRecord(
             created_date=row["created_date"].isoformat(),
             **{key: value for key, value in row.items() if key != "created_date"},
+        )
+        for row in rows
+    ]
+
+
+@app.get(
+    "/machines/{machine_id}/manuals/search",
+    response_model=list[ManualSearchResult],
+)
+async def search_machine_manual(
+    machine_id: str,
+    query: str = Query(min_length=1, max_length=1_000),
+    user: AuthContext = Depends(get_current_user),
+    limit: int = Query(default=5, ge=1, le=10),
+) -> list[ManualSearchResult]:
+    """Manuals Agent endpoint: semantic search scoped to one authorised machine."""
+
+    normalized_query = query.strip()
+    if not normalized_query:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The manual search query cannot be blank.",
+        )
+    try:
+        rows = await search_manual(machine_id.strip(), normalized_query, user, limit)
+    except MachineNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Machine not found.",
+        ) from error
+    except ManualsUnavailableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Manual search is temporarily unavailable.",
+        ) from error
+    return [
+        ManualSearchResult(
+            citation=ManualCitation(
+                source=row["source"],
+                file=row["file"],
+                page=row["page"],
+                section=row["section"],
+            ),
+            content=row["content"],
+            similarity=row["similarity"],
         )
         for row in rows
     ]

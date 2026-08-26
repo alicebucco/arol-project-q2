@@ -93,6 +93,17 @@ The Service Agent uses the same access boundary for maintenance history:
 GET /machines/{machine_id}/maintenance-tickets?limit=20
 ```
 
+The Manuals Agent performs local semantic search only in the PDF manual of the
+authorised physical machine. It returns chunk text plus a structured citation:
+
+```text
+GET /machines/{machine_id}/manuals/search?query=low%20air%20pressure&limit=5
+```
+
+The endpoint requires `X-User-Id`; it permits `full`, `technician`, and
+`commercial` users, while the query itself is always constrained to the
+requested machine and its company.
+
 The Orders Agent exposes commercial data only for `full` and `commercial`
 users. The company scope is taken from the authenticated session:
 
