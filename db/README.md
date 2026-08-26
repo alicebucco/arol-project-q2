@@ -19,3 +19,17 @@ the database already contains data.
 Excel headers in camelCase are converted to snake_case. Fields described in
 the brief are stored in relational columns; any additional commercial columns
 are preserved in `source_data` (JSONB).
+
+## Local PDF chunking (no embeddings yet)
+
+The restricted manuals remain under `data/manuals/` and are never committed.
+Create page-aware chunks locally with:
+
+```bash
+docker compose run --rm backend \
+  sh -c "pip install -r /db/requirements.txt && python /db/scripts/chunk_manuals.py /data/manuals --output /data/manual_chunks.jsonl"
+```
+
+The output is JSONL under the ignored `data/` directory. Each record contains
+the source filename, serial number, page, detected section, and text. This
+step does not call an API, create embeddings, or write to PostgreSQL.

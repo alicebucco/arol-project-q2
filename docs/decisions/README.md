@@ -12,3 +12,4 @@ Elenco delle decisioni di design motivate per questo progetto, in formato ADR br
 | [0006](0006-orologio-di-business-congelato.md) | Orologio di business congelato al 2026-08-05 |
 | [0007](0007-topologia-docker-semplificata.md) | Topologia Docker semplificata a 3 servizi |
 | [0008](0008-provider-llm-generico-mercury.md) | Integrazione LLM generica, provider Mercury |
+| [0009](0009-ingestion-manuali-pdf-locali.md) | Ingestion locale dei manuali PDF con pypdf |
