@@ -104,6 +104,17 @@ The endpoint requires `X-User-Id`; it permits `full`, `technician`, and
 `commercial` users, while the query itself is always constrained to the
 requested machine and its company.
 
+The Troubleshoot Agent composes the IoT, Service, and Manuals Agents for one
+machine. It returns operational evidence and cited manual chunks without
+sending restricted manual content to an external LLM:
+
+```text
+GET /machines/{machine_id}/troubleshoot?query=low%20air%20pressure&limit=5
+```
+
+Because it includes operational data, only `full` and `technician` users may
+call it.
+
 The Orders Agent exposes commercial data only for `full` and `commercial`
 users. The company scope is taken from the authenticated session:
 
