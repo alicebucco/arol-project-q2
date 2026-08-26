@@ -34,6 +34,9 @@ services:
       - ./backend:/app
       - ./db:/db:ro
       - ./data:/data:ro
+      - model_cache:/models
+    environment:
+      HF_HOME: /models
     command: sh -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     env_file: .env
     ports:
@@ -58,3 +61,4 @@ services:
 
 volumes:
   db_data:
+  model_cache:

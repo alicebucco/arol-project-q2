@@ -113,7 +113,7 @@ erDiagram
         string machineId FK "via serialNumber, mai misto tra macchine"
         string section "safety / technical_data / mechanical / troubleshooting"
         int page
-        vector embedding
+        vector(384) embedding "all-MiniLM-L6-v2, cosine similarity"
         text content
     }
 ```

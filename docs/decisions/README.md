@@ -13,3 +13,4 @@ Elenco delle decisioni di design motivate per questo progetto, in formato ADR br
 | [0007](0007-topologia-docker-semplificata.md) | Topologia Docker semplificata a 3 servizi |
 | [0008](0008-provider-llm-generico-mercury.md) | Integrazione LLM generica, provider Mercury |
 | [0009](0009-ingestion-manuali-pdf-locali.md) | Ingestion locale dei manuali PDF con pypdf |
+| [0010](0010-embedding-locali-manuali.md) | Embedding locali con all-MiniLM-L6-v2 |

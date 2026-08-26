@@ -33,3 +33,25 @@ docker compose run --rm backend \
 The output is JSONL under the ignored `data/` directory. Each record contains
 the source filename, serial number, page, detected section, and text. This
 step does not call an API, create embeddings, or write to PostgreSQL.
+
+## Local embeddings with pgvector
+
+After importing the Excel dataset and producing `data/manual_chunks.jsonl`,
+generate embeddings locally with the English model
+`sentence-transformers/all-MiniLM-L6-v2`. The model is downloaded once into a
+local Docker volume; manual text is never sent to an external API.
+
+```bash
+docker compose run --rm backend \
+  sh -c "pip install -r /db/requirements-embeddings.txt && python /db/scripts/embed_manual_chunks.py /data/manual_chunks.jsonl"
+```
+
+The script validates every serial number against `machines.serial_number`, then
+stores 384-dimensional normalised vectors in `manual_chunks`. On a rebuild,
+add `--replace` to the Python command. Fresh databases create the table through
+`init/003-create-manual-chunks.sql`. If the database volume already existed
+before this migration was added, apply it once before running the script:
+
+```bash
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /docker-entrypoint-initdb.d/003-create-manual-chunks.sql'
+```
