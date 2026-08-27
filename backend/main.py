@@ -3,13 +3,15 @@
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from core.auth import AuthContext, ensure_company_access, ensure_visibility, get_current_user
 from core.config import get_settings
 from core.db import check_connection, connection
-from core.data_access import MachineNotFoundError
+from core.data_access import MachineNotFoundError, get_company_machines
 from core.llm import LlmNotConfiguredError, LlmRequestError, generate_chat_reply
+from core.orchestrator import MissingMachineContextError, handle_chat
 from agents.iot import recent_alarms, telemetry
 from agents.service import maintenance_tickets
 from agents.troubleshoot import investigate
@@ -18,18 +20,27 @@ from agents.manuals import ManualsUnavailableError, search as search_manual
 
 
 app = FastAPI(title="AROL Customer Platform API", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:5174"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class ChatRequest(BaseModel):
     """Temporary chat input before sessions and machine context are added."""
 
     message: str = Field(min_length=1, max_length=4_000)
+    machine_id: str | None = Field(default=None, max_length=100)
 
 
 class ChatResponse(BaseModel):
     """Temporary chat output before agents and citations are added."""
 
     answer: str
+    agent: str = "general"
 
 
 class MachineContext(BaseModel):
@@ -44,6 +55,21 @@ class MachineContext(BaseModel):
     model_description: str | None = None
     plant_location: str | None = None
     operational_context: str
+
+
+class MachineSummary(BaseModel):
+    machine_id: str
+    serial_number: str
+    model_code: str
+    model_description: str | None = None
+    plant_location: str | None = None
+    configuration_profile: str | None = None
+
+
+class SessionUser(BaseModel):
+    user_id: str
+    company_id: str
+    visibility: str
 
 
 class AlarmRecord(BaseModel):
@@ -127,6 +153,27 @@ async def health() -> dict[str, str | bool]:
         "database_configured": bool(settings.postgres_password.get_secret_value()),
         "database_reachable": database_reachable,
     }
+
+
+@app.get("/auth/me", response_model=SessionUser)
+async def current_session(user: AuthContext = Depends(get_current_user)) -> SessionUser:
+    """Validate the development session before the frontend enters the app."""
+
+    return SessionUser(
+        user_id=user.user_id,
+        company_id=user.company_id,
+        visibility=user.visibility,
+    )
+
+
+@app.get("/machines", response_model=list[MachineSummary])
+async def company_machines(
+    user: AuthContext = Depends(get_current_user),
+) -> list[MachineSummary]:
+    """List machine identity data belonging to the authenticated company."""
+
+    ensure_visibility(user, "machines")
+    return [MachineSummary(**row) for row in await get_company_machines(user.company_id)]
 
 
 @app.get("/machines/lookup/{qr_value}", response_model=MachineContext)
@@ -434,7 +481,19 @@ async def chat(
         )
 
     try:
-        answer = await generate_chat_reply(message)
+        result = await handle_chat(message, user, request.machine_id)
+    except MissingMachineContextError as error:
+        return ChatResponse(answer=str(error), agent="orchestrator")
+    except MachineNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Machine not found.",
+        ) from None
+    except ManualsUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Manual search is temporarily unavailable.",
+        ) from None
     except LlmNotConfiguredError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -446,4 +505,4 @@ async def chat(
             detail="The LLM provider could not complete the request.",
         ) from None
 
-    return ChatResponse(answer=answer)
+    return ChatResponse(answer=result.answer, agent=result.agent)

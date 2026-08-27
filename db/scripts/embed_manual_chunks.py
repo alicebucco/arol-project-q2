@@ -144,7 +144,7 @@ def main() -> None:
     chunks = read_chunks(args.chunks)
     print(f"Loading local embedding model: {MODEL_NAME}")
     model = SentenceTransformer(MODEL_NAME, cache_folder=os.getenv("HF_HOME"))
-    if model.get_sentence_embedding_dimension() != EMBEDDING_DIMENSION:
+    if model.get_embedding_dimension() != EMBEDDING_DIMENSION:
         raise ValueError(f"{MODEL_NAME} does not have the expected {EMBEDDING_DIMENSION} dimensions")
 
     with psycopg.connect(database_url()) as connection:

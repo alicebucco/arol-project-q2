@@ -1,5 +1,5 @@
 -r requirements.txt
 # The project runs inference on CPU; avoid downloading CUDA runtime packages.
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.5.1+cpu; sys_platform == "linux"
+torch==2.13.0+cpu; sys_platform == "linux"
 sentence-transformers==5.7.0

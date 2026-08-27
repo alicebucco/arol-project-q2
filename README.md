@@ -48,6 +48,12 @@ Start PostgreSQL and Adminer:
 docker compose up -d db adminer
 ```
 
+When the `backend` service starts for the first time, it also downloads and
+validates the local `sentence-transformers/all-MiniLM-L6-v2` embedding model.
+The model is stored in Docker's `model_cache` volume, not in the repository;
+subsequent starts reuse that cache. This requires internet access only until
+the volume has been populated.
+
 Adminer is available at `http://localhost:8080`. Connect with server `db` and
 the credentials from `.env`.
 

@@ -197,6 +197,36 @@ async def get_company_orders(company_id: str, limit: int) -> list[dict[str, Any]
     ]
 
 
+async def get_company_machines(company_id: str) -> list[dict[str, Any]]:
+    """Return the machine identity data visible to every user in one company."""
+
+    async with connection() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                """
+                SELECT m.machine_id, m.serial_number, mm.model_code, mm.description,
+                       m.plant_location, m.configuration_profile
+                FROM machines AS m
+                JOIN machine_models AS mm ON mm.model_id = m.model_id
+                WHERE m.company_id = %s
+                ORDER BY m.machine_id
+                """,
+                (company_id,),
+            )
+            rows = await cursor.fetchall()
+    return [
+        {
+            "machine_id": row[0],
+            "serial_number": row[1],
+            "model_code": row[2],
+            "model_description": row[3],
+            "plant_location": row[4],
+            "configuration_profile": row[5],
+        }
+        for row in rows
+    ]
+
+
 async def get_company_quotes(company_id: str, limit: int) -> list[dict[str, Any]]:
     """Return quotes with their latest revision and net line total."""
 

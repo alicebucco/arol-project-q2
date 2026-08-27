@@ -20,7 +20,7 @@ SYSTEM_PROMPT = (
 )
 
 
-async def generate_chat_reply(message: str) -> str:
+async def generate_chat_reply(message: str, system_prompt: str = SYSTEM_PROMPT) -> str:
     """Send a single user message to Mercury and return its text response."""
 
     settings = get_settings()
@@ -35,7 +35,7 @@ async def generate_chat_reply(message: str) -> str:
         completion = await client.chat.completions.create(
             model=settings.llm_model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message},
             ],
             temperature=0.75,

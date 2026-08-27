@@ -27,7 +27,8 @@ services:
   # Backend code is expected in ./backend (FastAPI entry point: main:app).
   # See docs/architecture/02-containers.md and 03-components.md.
   backend:
-    image: python:3.12-slim
+    build:
+      context: ./backend
     restart: unless-stopped
     working_dir: /app
     volumes:
@@ -37,7 +38,12 @@ services:
       - model_cache:/models
     environment:
       HF_HOME: /models
-    command: sh -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+      # The regular HTTP downloader is more reliable than Xet in restricted
+      # development networks; the downloaded model is still stored in HF_HOME.
+      HF_HUB_DISABLE_XET: "1"
+    # The model is downloaded once into model_cache and validated before the
+    # API accepts requests. This keeps manual search deterministic at runtime.
+    command: sh -c "python scripts/warm_embedding_model.py && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     env_file: .env
     ports:
       - "8000:8000"
@@ -55,7 +61,7 @@ services:
       - ./frontend:/app
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
     ports:
-      - "5173:5173"
+      - "${FRONTEND_PORT:-5173}:5173"
     depends_on:
       - backend
 

@@ -26,8 +26,8 @@ The restricted manuals remain under `data/manuals/` and are never committed.
 Create page-aware chunks locally with:
 
 ```bash
-docker compose run --rm backend \
-  sh -c "pip install -r /db/requirements.txt && python /db/scripts/chunk_manuals.py /data/manuals --output /data/manual_chunks.jsonl"
+docker compose run --rm -v ./data:/workdata backend \
+  sh -c "python -m pip install pypdf==6.16.2 && python /db/scripts/chunk_manuals.py /data/manuals --output /workdata/manual_chunks.jsonl"
 ```
 
 The output is JSONL under the ignored `data/` directory. Each record contains
@@ -42,8 +42,8 @@ generate embeddings locally with the English model
 local Docker volume; manual text is never sent to an external API.
 
 ```bash
-docker compose run --rm backend \
-  sh -c "pip install -r /db/requirements-embeddings.txt && python /db/scripts/embed_manual_chunks.py /data/manual_chunks.jsonl"
+docker compose run --rm -v ./data:/workdata backend \
+  python /db/scripts/embed_manual_chunks.py /workdata/manual_chunks.jsonl
 ```
 
 The script validates every serial number against `machines.serial_number`, then
