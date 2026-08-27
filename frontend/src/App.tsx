@@ -21,6 +21,18 @@ type MachineContext = MachineSummary & {
   operational_context: string;
 };
 
+type ChatMessage = {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  agent?: string;
+};
+
+type ChatResponse = {
+  answer: string;
+  agent: string;
+};
+
 function activeUserId() {
   return localStorage.getItem(USER_ID_STORAGE_KEY);
 }
@@ -33,6 +45,23 @@ async function apiGet<T>(path: string, userIdOverride?: string): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { detail?: string } | null;
     throw new Error(body?.detail ?? "Impossibile caricare i dati richiesti.");
+  }
+  return response.json() as Promise<T>;
+}
+
+async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const userId = activeUserId();
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(userId ? { "X-User-Id": userId } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null) as { detail?: string } | null;
+    throw new Error(errorBody?.detail ?? "Impossibile inviare la domanda.");
   }
   return response.json() as Promise<T>;
 }
@@ -210,11 +239,102 @@ function HomePage() {
   );
 }
 
+function AssistantChat({ machineId, onClose }: { machineId: string; onClose: () => void }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState("");
+  const [isSending, setIsSending] = useState(false);
+
+  async function sendMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const message = draft.trim();
+    if (!message || isSending) return;
+
+    const userMessage: ChatMessage = {
+      id: Date.now(),
+      role: "user",
+      content: message,
+    };
+    setMessages((current) => [...current, userMessage]);
+    setDraft("");
+    setError("");
+    setIsSending(true);
+
+    try {
+      const result = await apiPost<ChatResponse>("/chat", {
+        message,
+        machine_id: machineId,
+      });
+      setMessages((current) => [
+        ...current,
+        {
+          id: Date.now() + 1,
+          role: "assistant",
+          content: result.answer,
+          agent: result.agent,
+        },
+      ]);
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Si è verificato un errore inatteso.");
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="chat-drawer-backdrop" aria-hidden="true" onClick={onClose} />
+      <section className="assistant-chat" role="dialog" aria-modal="true" aria-labelledby="assistant-chat-title">
+      <div className="assistant-chat-heading">
+        <div>
+          <p className="eyebrow dark-eyebrow">AROL ASSISTANT</p>
+          <h2 id="assistant-chat-title">Chiedi informazioni sulla macchina</h2>
+        </div>
+        <div className="chat-heading-actions">
+          <span className="chat-machine-context">{machineId}</span>
+          <button className="chat-close-button" type="button" onClick={onClose} aria-label="Chiudi chat">×</button>
+        </div>
+      </div>
+      <p className="chat-intro">Puoi chiedere di allarmi, telemetria, manutenzione, manuali, ordini e preventivi.</p>
+      <div className="chat-history" aria-live="polite">
+        {messages.length === 0 && (
+          <p className="chat-empty">Ad esempio: “Ci sono allarmi recenti?” oppure “Cerca nel manuale le istruzioni di sicurezza”.</p>
+        )}
+        {messages.map((message) => (
+          <article key={message.id} className={`chat-message chat-message-${message.role}`}>
+            <span className="chat-message-label">{message.role === "user" ? "Tu" : "AROL Assistant"}</span>
+            <p>{message.content}</p>
+            {message.agent && <small>Agente: {message.agent}</small>}
+          </article>
+        ))}
+        {isSending && <p className="chat-thinking">AROL Assistant sta elaborando la risposta…</p>}
+      </div>
+      {error && <p className="status-message error-message">{error}</p>}
+      <form className="chat-form" onSubmit={sendMessage}>
+        <label className="sr-only" htmlFor="chat-message">Domanda per AROL Assistant</label>
+        <textarea
+          id="chat-message"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="Scrivi una domanda sulla macchina…"
+          rows={3}
+          disabled={isSending}
+        />
+        <button type="submit" disabled={isSending || !draft.trim()}>
+          {isSending ? "Invio…" : "Invia domanda"}
+        </button>
+      </form>
+      </section>
+    </>
+  );
+}
+
 function MachinePage() {
   const { qrValue } = useParams();
   const navigate = useNavigate();
   const [machine, setMachine] = useState<MachineContext | null>(null);
   const [error, setError] = useState("");
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   useEffect(() => {
     if (!qrValue) return;
@@ -258,8 +378,12 @@ function MachinePage() {
               <p className="eyebrow dark-eyebrow">CONFIGURATION</p>
               <p>{machine.operational_context}</p>
             </section>
+            <button className="assistant-launcher" type="button" onClick={() => setIsChatOpen(true)} aria-label="Apri AROL Assistant" title="Apri AROL Assistant">
+              <span aria-hidden="true">AI</span>
+            </button>
+            {isChatOpen && <AssistantChat machineId={machine.machine_id} onClose={() => setIsChatOpen(false)} />}
             <section className="next-actions" aria-label="Funzioni macchina">
-              <article><strong>AROL Assistant</strong><span>AI Chat, technical manuals, and guided troubleshooting will be available here.</span></article>
+              <article><strong>AROL Assistant</strong><span>La chat è collegata al contesto della macchina e agli agenti disponibili nel backend.</span></article>
               <article><strong>Operational Data</strong><span>Alarms, IoT telemetry, and maintenance schedules will be added in the next section.</span></article>
             </section>
           </>

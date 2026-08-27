@@ -31,7 +31,14 @@ def embedding_model() -> SentenceTransformer:
         # starting at all.
         from sentence_transformers import SentenceTransformer
 
-        model = SentenceTransformer(MODEL_NAME, cache_folder=os.getenv("HF_HOME"))
+        # The model is populated in the Docker volume during setup.  Loading
+        # it in offline mode avoids a network check (and repeated retries) for
+        # every API start, while keeping manual embeddings completely local.
+        model = SentenceTransformer(
+            MODEL_NAME,
+            cache_folder=os.getenv("HF_HOME"),
+            local_files_only=True,
+        )
     except Exception as error:
         raise ManualsUnavailableError("The local embedding model is unavailable.") from error
     if model.get_embedding_dimension() != EMBEDDING_DIMENSION:
