@@ -66,13 +66,19 @@ docker compose run --rm -e POSTGRES_HOST=db backend \
 
 See [`db/README.md`](db/README.md) for details about the schema and importer.
 
-## Authentication and access control (development)
+## Authentication and access control
 
-The current session adapter authenticates requests with the `X-User-Id`
-header and resolves that user against the `users` table. For example:
+The local application uses an identifier/password login (`POST /auth/login`)
+and returns a short-lived JWT. The frontend sends it on protected calls as
+`Authorization: Bearer <token>`; the backend resolves the user from the token
+and re-reads company and visibility from the `users` table.
+
+Passwords are stored only as bcrypt hashes. For the synthetic local dataset,
+set `AUTH_JWT_SECRET` and `AUTH_DEVELOPMENT_PASSWORD` in the ignored `.env`,
+then initialise the hashes once:
 
 ```bash
-curl -H "X-User-Id: USR-001" http://localhost:8000/machines/lookup/15610
+docker compose run --rm backend python /db/scripts/set_development_passwords.py
 ```
 
 Every query is constrained to the authenticated user's `company_id`. The
@@ -80,8 +86,8 @@ dataset visibility matrix is enforced server-side: `full` can access all
 domains, `technician` can access operational data, and `commercial` can access
 quotes/orders. A missing identity returns `401`; an authenticated request
 outside its tenant or visibility scope returns `403 {"detail":"Access denied."}`.
-This header-based adapter is intentionally replaceable by JWT/session
-verification when a real identity provider is connected.
+This local JWT flow can later be replaced by an external identity provider
+without changing the existing company and visibility checks.
 
 The first data-aware agent is the IoT Agent:
 
@@ -90,7 +96,7 @@ GET /machines/{machine_id}/alarms?limit=20
 GET /machines/{machine_id}/telemetry?limit=24
 ```
 
-Both endpoints require `X-User-Id`, restrict access to the user's company, and
+Both endpoints require a Bearer JWT, restrict access to the user's company, and
 allow only `full` or `technician` users because they expose operational data.
 
 The Service Agent uses the same access boundary for maintenance history:
@@ -106,7 +112,7 @@ authorised physical machine. It returns chunk text plus a structured citation:
 GET /machines/{machine_id}/manuals/search?query=low%20air%20pressure&limit=5
 ```
 
-The endpoint requires `X-User-Id`; it permits `full`, `technician`, and
+The endpoint requires a Bearer JWT; it permits `full`, `technician`, and
 `commercial` users, while the query itself is always constrained to the
 requested machine and its company.
 

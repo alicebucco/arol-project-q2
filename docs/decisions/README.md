@@ -14,3 +14,5 @@ Elenco delle decisioni di design motivate per questo progetto, in formato ADR br
 | [0008](0008-provider-llm-generico-mercury.md) | Integrazione LLM generica, provider Mercury |
 | [0009](0009-ingestion-manuali-pdf-locali.md) | Ingestion locale dei manuali PDF con pypdf |
 | [0010](0010-embedding-locali-manuali.md) | Embedding locali con all-MiniLM-L6-v2 |
+| [0011](0011-autenticazione-locale-jwt.md) | Local authentication with bcrypt passwords and JWT |
+| [0012](0012-ui-feedback-states.md) | Consistent UI feedback for loading, empty and error states |

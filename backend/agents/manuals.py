@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
 
 from core.auth import AuthContext
-from core.data_access import authorize_machine, search_manual_chunks
+from core.data_access import authorize_machine, manual_file_belongs_to_machine, search_manual_chunks
 
 
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -63,3 +63,10 @@ async def search(
     await authorize_machine(machine_id, user, domain="manuals")
     embedding = await asyncio.to_thread(_embed_query, query)
     return await search_manual_chunks(machine_id, embedding, limit)
+
+
+async def can_open_file(machine_id: str, source_file: str, user: AuthContext) -> bool:
+    """Authorize access to one PDF that was indexed for this machine."""
+
+    await authorize_machine(machine_id, user, domain="manuals")
+    return await manual_file_belongs_to_machine(machine_id, source_file)

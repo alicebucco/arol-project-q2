@@ -170,6 +170,25 @@ async def search_manual_chunks(
     ]
 
 
+async def manual_file_belongs_to_machine(machine_id: str, source_file: str) -> bool:
+    """Check that a PDF was indexed for the requested machine."""
+
+    async with connection() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM manual_chunks
+                    WHERE machine_id = %s AND source_file = %s
+                )
+                """,
+                (machine_id, source_file),
+            )
+            row = await cursor.fetchone()
+    return bool(row[0])
+
+
 async def get_company_orders(company_id: str, limit: int) -> list[dict[str, Any]]:
     """Return orders belonging to one company."""
 

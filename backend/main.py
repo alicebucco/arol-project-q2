@@ -1,12 +1,21 @@
 """FastAPI entry point for the AROL Customer Platform backend."""
 
+from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from core.auth import AuthContext, ensure_company_access, ensure_visibility, get_current_user
+from core.auth import (
+    AuthContext,
+    authenticate_password,
+    create_access_token,
+    ensure_company_access,
+    ensure_visibility,
+    get_current_user,
+)
 from core.config import get_settings
 from core.db import check_connection, connection
 from core.data_access import MachineNotFoundError, get_company_machines
@@ -16,7 +25,10 @@ from agents.iot import recent_alarms, telemetry
 from agents.service import maintenance_tickets
 from agents.troubleshoot import investigate
 from agents.orders import orders, quotes
-from agents.manuals import ManualsUnavailableError, search as search_manual
+from agents.manuals import ManualsUnavailableError, can_open_file, search as search_manual
+
+
+MANUALS_DIRECTORY = Path("/data/manuals")
 
 
 app = FastAPI(title="AROL Customer Platform API", version="0.1.0")
@@ -77,6 +89,17 @@ class SessionUser(BaseModel):
     user_id: str
     company_id: str
     visibility: str
+
+
+class LoginRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    user: SessionUser
 
 
 class AlarmRecord(BaseModel):
@@ -158,13 +181,27 @@ async def health() -> dict[str, str | bool]:
         "service": "backend",
         "llm_configured": settings.llm_api_key is not None,
         "database_configured": bool(settings.postgres_password.get_secret_value()),
+        "authentication_configured": settings.auth_jwt_secret is not None,
         "database_reachable": database_reachable,
     }
 
 
+@app.post("/auth/login", response_model=LoginResponse)
+async def login(request: LoginRequest) -> LoginResponse:
+    """Authenticate a local password and return a short-lived bearer token."""
+
+    user = await authenticate_password(request.user_id, request.password)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials.")
+    return LoginResponse(
+        access_token=create_access_token(user),
+        user=SessionUser(user_id=user.user_id, company_id=user.company_id, visibility=user.visibility),
+    )
+
+
 @app.get("/auth/me", response_model=SessionUser)
 async def current_session(user: AuthContext = Depends(get_current_user)) -> SessionUser:
-    """Validate the development session before the frontend enters the app."""
+    """Return the user resolved from the submitted bearer token."""
 
     return SessionUser(
         user_id=user.user_id,
@@ -375,6 +412,38 @@ async def search_machine_manual(
         )
         for row in rows
     ]
+
+
+@app.get("/machines/{machine_id}/manuals/files/{source_file}")
+async def open_machine_manual(
+    machine_id: str,
+    source_file: str,
+    user: AuthContext = Depends(get_current_user),
+) -> FileResponse:
+    """Serve one authorised local manual inline; it is never a public static file."""
+
+    safe_file_name = Path(source_file).name
+    if safe_file_name != source_file or Path(safe_file_name).suffix.lower() != ".pdf":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manual not found.")
+
+    try:
+        is_available = await can_open_file(machine_id.strip(), safe_file_name, user)
+    except MachineNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Machine not found.",
+        ) from error
+    if not is_available:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manual not found.")
+
+    manual_path = MANUALS_DIRECTORY / safe_file_name
+    if not manual_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manual file is unavailable.")
+    return FileResponse(
+        manual_path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{safe_file_name}"'},
+    )
 
 
 @app.get(
