@@ -1,7 +1,7 @@
 """FastAPI entry point for the AROL Customer Platform backend."""
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,13 +53,6 @@ class ChatRequest(BaseModel):
 
     message: str = Field(min_length=1, max_length=4_000)
     machine_id: str | None = Field(default=None, max_length=100)
-
-
-class ChatResponse(BaseModel):
-    """Temporary chat output before agents and citations are added."""
-
-    answer: str
-    agent: str = "general"
 
 
 class MachineContext(BaseModel):
@@ -156,7 +149,10 @@ class ManualCitation(BaseModel):
 
 class ManualSearchResult(BaseModel):
     citation: ManualCitation
-    content: str
+    excerpt: str
+    title: str
+    highlights: list[str]
+    relevance: float
     similarity: float
 
 
@@ -168,6 +164,32 @@ class TroubleshootReport(BaseModel):
     telemetry: list[TelemetryRecord]
     maintenance_tickets: list[MaintenanceTicketRecord]
     manual_evidence: list[ManualSearchResult]
+
+
+class ChatResponse(BaseModel):
+    """Chat output, with structured local manual sources when available."""
+
+    answer: str
+    agent: str = "general"
+    sources: list[ManualSearchResult] = Field(default_factory=list)
+    data: dict[str, Any] | None = None
+
+
+def manual_search_result(row: dict[str, object]) -> ManualSearchResult:
+    """Map an internal local manual result to the public API contract."""
+    return ManualSearchResult(
+        citation=ManualCitation(
+            source=row["source"],  # type: ignore[arg-type]
+            file=row["file"],  # type: ignore[arg-type]
+            page=row["page"],  # type: ignore[arg-type]
+            section=row["section"],  # type: ignore[arg-type]
+        ),
+        excerpt=row["excerpt"],  # type: ignore[arg-type]
+        title=row["title"],  # type: ignore[arg-type]
+        highlights=row["highlights"],  # type: ignore[arg-type]
+        relevance=row["relevance"],  # type: ignore[arg-type]
+        similarity=row["similarity"],  # type: ignore[arg-type]
+    )
 
 
 @app.get("/health")
@@ -399,19 +421,7 @@ async def search_machine_manual(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Manual search is temporarily unavailable.",
         ) from error
-    return [
-        ManualSearchResult(
-            citation=ManualCitation(
-                source=row["source"],
-                file=row["file"],
-                page=row["page"],
-                section=row["section"],
-            ),
-            content=row["content"],
-            similarity=row["similarity"],
-        )
-        for row in rows
-    ]
+    return [manual_search_result(row) for row in rows]
 
 
 @app.get("/machines/{machine_id}/manuals/files/{source_file}")
@@ -496,19 +506,7 @@ async def troubleshoot_machine(
             )
             for row in report["maintenance_tickets"]
         ],
-        manual_evidence=[
-            ManualSearchResult(
-                citation=ManualCitation(
-                    source=row["source"],
-                    file=row["file"],
-                    page=row["page"],
-                    section=row["section"],
-                ),
-                content=row["content"],
-                similarity=row["similarity"],
-            )
-            for row in report["manual_evidence"]
-        ],
+        manual_evidence=[manual_search_result(row) for row in report["manual_evidence"]],
     )
 
 
@@ -581,4 +579,9 @@ async def chat(
             detail="The LLM provider could not complete the request.",
         ) from None
 
-    return ChatResponse(answer=result.answer, agent=result.agent)
+    return ChatResponse(
+        answer=result.answer,
+        agent=result.agent,
+        sources=[manual_search_result(row) for row in result.manual_evidence or []],
+        data=result.structured_data,
+    )

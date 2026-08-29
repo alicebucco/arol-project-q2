@@ -135,6 +135,18 @@ GET /orders?limit=20
 GET /quotes?limit=20
 ```
 
+## Tests
+
+The backend suite covers authentication and tenant/role boundaries, API contracts,
+agent routing, local manual retrieval and the troubleshooting response. It uses
+mocks for the database and the external LLM, so it does not transmit dataset
+content outside the local environment.
+
+```bash
+docker compose run --rm backend sh -c "pip install -r requirements-dev.txt && pytest"
+docker compose exec frontend npm test
+```
+
 ## Dataset: local only and hidden from Git
 
 The synthetic dataset must be placed locally in `data/`:

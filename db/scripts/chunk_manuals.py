@@ -42,19 +42,30 @@ def normalise_text(text: str) -> str:
 
 
 def classify_section(text: str, previous_section: str) -> str:
-    """Keep the previous section until a recognised heading appears."""
-    for section, pattern in SECTION_PATTERNS:
-        if pattern.search(text):
-            return section
+    """Keep the previous section until a recognised heading line appears."""
+    for raw_line in text.splitlines():
+        line = normalise_text(raw_line)
+        # Matching keywords anywhere in the body marked many unrelated pages as
+        # "safety" or "troubleshooting".  A heading is normally short or
+        # numbered; ordinary paragraph text is deliberately ignored here.
+        if not line or len(line) > 100:
+            continue
+        is_heading_like = (
+            line.isupper()
+            or bool(re.match(r"^\d+(?:\.\d+)*\.?\s+", line))
+            or len(line.split()) <= 8
+        )
+        if not is_heading_like:
+            continue
+        for section, pattern in SECTION_PATTERNS:
+            if pattern.search(line):
+                return section
     return previous_section
 
 
-def split_text(text: str, size: int, overlap: int) -> list[str]:
-    """Split text by words, retaining a short overlap for search continuity."""
+def _split_long_text(text: str, size: int, overlap: int) -> list[str]:
+    """Split one exceptionally long sentence by words as a last resort."""
     words = text.split()
-    if not words:
-        return []
-
     chunks: list[str] = []
     start = 0
     while start < len(words):
@@ -78,6 +89,55 @@ def split_text(text: str, size: int, overlap: int) -> list[str]:
     return chunks
 
 
+def _overlap_sentences(sentences: list[str], overlap: int) -> list[str]:
+    """Return complete trailing sentences that fit into the overlap budget."""
+    if overlap <= 0:
+        return []
+    selected: list[str] = []
+    length = 0
+    for sentence in reversed(sentences):
+        next_length = len(sentence) + (1 if selected else 0)
+        if length + next_length > overlap:
+            break
+        selected.append(sentence)
+        length += next_length
+    return list(reversed(selected))
+
+
+def split_text(text: str, size: int, overlap: int) -> list[str]:
+    """Split pages on sentence boundaries, retaining a short safe overlap."""
+    sentences = [sentence.strip() for sentence in re.split(r"(?<=[.!?])\s+", text) if sentence.strip()]
+    if not sentences:
+        return []
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_length = 0
+    for sentence in sentences:
+        if len(sentence) > size:
+            if current:
+                chunks.append(" ".join(current))
+                current = []
+                current_length = 0
+            chunks.extend(_split_long_text(sentence, size, overlap))
+            continue
+
+        next_length = current_length + len(sentence) + (1 if current else 0)
+        if current and next_length > size:
+            chunks.append(" ".join(current))
+            current = _overlap_sentences(current, overlap)
+            current_length = len(" ".join(current))
+            if current and current_length + len(sentence) + 1 > size:
+                current = []
+                current_length = 0
+        current.append(sentence)
+        current_length += len(sentence) + (1 if current_length else 0)
+
+    if current:
+        chunks.append(" ".join(current))
+    return chunks
+
+
 def serial_from_filename(path: Path) -> str:
     match = MANUAL_FILENAME.match(path.name)
     if not match:
@@ -97,10 +157,11 @@ def chunk_manual(path: Path, size: int, overlap: int) -> list[ManualChunk]:
     chunks: list[ManualChunk] = []
     section = "general"
     for page_number, pdf_page in enumerate(reader.pages, start=1):
-        text = normalise_text(pdf_page.extract_text() or "")
+        raw_text = pdf_page.extract_text() or ""
+        text = normalise_text(raw_text)
         if not text:
             continue
-        section = classify_section(text, section)
+        section = classify_section(raw_text, section)
         for page_index, content in enumerate(split_text(text, size, overlap), start=1):
             chunks.append(
                 ManualChunk(
@@ -120,8 +181,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Create local, page-aware chunks from AROL PDF manuals.")
     parser.add_argument("manuals_dir", type=Path, help="Directory containing <serial>_manual_EN.pdf files")
     parser.add_argument("--output", type=Path, required=True, help="Local JSONL output path, normally under data/")
-    parser.add_argument("--chunk-size", type=int, default=1200, help="Maximum characters per chunk (default: 1200)")
-    parser.add_argument("--overlap", type=int, default=150, help="Approximate overlap characters (default: 150)")
+    parser.add_argument("--chunk-size", type=int, default=800, help="Maximum characters per chunk (default: 800)")
+    parser.add_argument("--overlap", type=int, default=100, help="Approximate overlap characters (default: 100)")
     args = parser.parse_args()
 
     if args.chunk_size <= 0 or args.overlap < 0 or args.overlap >= args.chunk_size:

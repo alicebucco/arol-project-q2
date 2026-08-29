@@ -15,6 +15,7 @@ class LlmRequestError(RuntimeError):
 
 SYSTEM_PROMPT = (
     "You are the AROL Customer Platform assistant. "
+    "Always reply in English, even when the user writes in another language. "
     "This is a connectivity test only: do not claim access to fleet data, "
     "manuals, alarms, orders, or maintenance records."
 )

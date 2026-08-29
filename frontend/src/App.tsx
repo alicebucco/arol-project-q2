@@ -28,11 +28,15 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   agent?: string;
+  sources?: ManualSearchResult[];
+  data?: ChatData | null;
 };
 
 type ChatResponse = {
   answer: string;
   agent: string;
+  sources: ManualSearchResult[];
+  data: ChatData | null;
 };
 
 type AlarmRecord = {
@@ -80,6 +84,15 @@ type QuoteRecord = {
   line_total: number;
 };
 
+type ChatData = {
+  machine_id?: string;
+  alarms?: AlarmRecord[];
+  telemetry?: TelemetryRecord[];
+  maintenance_tickets?: MaintenanceTicketRecord[];
+  orders?: OrderRecord[];
+  quotes?: QuoteRecord[];
+};
+
 type ServiceTicket = MaintenanceTicketRecord & {
   machine_id: string;
   serial_number: string;
@@ -92,9 +105,18 @@ type ManualSearchResult = {
     page: number;
     section: string;
   };
-  content: string;
+  excerpt: string;
+  title: string;
+  highlights: string[];
+  relevance: number;
   similarity: number;
 };
+
+function manualRelevanceLabel(score: number) {
+  if (score >= 0.7) return "High relevance";
+  if (score >= 0.55) return "Relevant match";
+  return "Possible match";
+}
 
 type LoginResponse = {
   access_token: string;
@@ -287,7 +309,7 @@ function AppFooter() {
         <div>
           <a href="https://www.arol.com/terms-condition" target="_blank" rel="noreferrer">Terms &amp; Conditions</a>
           <a href="https://www.arol.com/legal-notes" target="_blank" rel="noreferrer">Legal Notice</a>
-          <a href="https://www.arol.com/arol-contact" target="_blank" rel="noreferrer">Privacy Policy</a>
+          <a href="https://www.privacylab.it/informativa.php?12701471129&lang=en" target="_blank" rel="noreferrer">Privacy Policy</a>
         </div>
       </div>
     </footer>
@@ -469,6 +491,62 @@ function HomePage() {
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-GB", { style: "currency", currency: "EUR" }).format(value);
+}
+
+function ChatStructuredData({ data }: { data: ChatData }) {
+  const hasRecords = Boolean(
+    data.alarms?.length
+    || data.telemetry?.length
+    || data.maintenance_tickets?.length
+    || data.orders?.length
+    || data.quotes?.length,
+  );
+  if (!hasRecords) return null;
+
+  return (
+    <section className="chat-data" aria-label="Retrieved records">
+      {data.alarms && data.alarms.length > 0 && (
+        <article className="chat-data-card">
+          <h4>Recent alarms</h4>
+          <div className="chat-data-table-wrap"><table><thead><tr><th>Date</th><th>Code</th><th>Severity</th><th>Status</th></tr></thead><tbody>
+            {data.alarms.map((alarm) => <tr key={alarm.alarm_id}><td>{formatDateTime(alarm.timestamp)}</td><td>{alarm.alarm_code}</td><td>{alarm.severity}</td><td>{alarm.alarm_status}</td></tr>)}
+          </tbody></table></div>
+        </article>
+      )}
+      {data.telemetry && data.telemetry.length > 0 && (
+        <article className="chat-data-card">
+          <h4>Latest telemetry</h4>
+          <div className="chat-data-table-wrap"><table><thead><tr><th>Date</th><th>Status</th><th>Production</th><th>Uptime</th><th>Temp.</th></tr></thead><tbody>
+            {data.telemetry.map((entry) => <tr key={entry.timestamp}><td>{formatDateTime(entry.timestamp)}</td><td>{entry.operational_status}</td><td>{entry.production_rate_bph.toLocaleString("en-GB")} bph</td><td>{entry.uptime_percentage}%</td><td>{entry.temperature_c ?? "—"}{entry.temperature_c !== null ? " °C" : ""}</td></tr>)}
+          </tbody></table></div>
+        </article>
+      )}
+      {data.maintenance_tickets && data.maintenance_tickets.length > 0 && (
+        <article className="chat-data-card">
+          <h4>Maintenance tickets</h4>
+          <div className="chat-data-table-wrap"><table><thead><tr><th>Date</th><th>Ticket</th><th>Priority</th><th>Status</th></tr></thead><tbody>
+            {data.maintenance_tickets.map((ticket) => <tr key={ticket.ticket_id}><td>{formatDateTime(ticket.created_date)}</td><td>{ticket.ticket_id}</td><td>{ticket.priority}</td><td>{ticket.ticket_status}</td></tr>)}
+          </tbody></table></div>
+        </article>
+      )}
+      {data.orders && data.orders.length > 0 && (
+        <article className="chat-data-card">
+          <h4>Orders</h4>
+          <div className="chat-data-table-wrap"><table><thead><tr><th>Order</th><th>Status</th><th>Shipment</th></tr></thead><tbody>
+            {data.orders.map((order) => <tr key={order.order_id}><td>{order.order_id}</td><td>{order.order_status}</td><td>{order.shipment_status}</td></tr>)}
+          </tbody></table></div>
+        </article>
+      )}
+      {data.quotes && data.quotes.length > 0 && (
+        <article className="chat-data-card">
+          <h4>Quotes</h4>
+          <div className="chat-data-table-wrap"><table><thead><tr><th>Quote</th><th>Status</th><th>Total</th></tr></thead><tbody>
+            {data.quotes.map((quote) => <tr key={quote.quote_id}><td>{quote.quote_id}</td><td>{quote.revision_status ?? "—"}</td><td>{formatCurrency(quote.line_total)}</td></tr>)}
+          </tbody></table></div>
+        </article>
+      )}
+    </section>
+  );
 }
 
 function OrdersPage() {
@@ -658,6 +736,7 @@ function AssistantChat({ machineId, onClose }: { machineId: string; onClose: () 
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [openingSource, setOpeningSource] = useState<string | null>(null);
   const { notify } = useNotifications();
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
@@ -687,6 +766,8 @@ function AssistantChat({ machineId, onClose }: { machineId: string; onClose: () 
           role: "assistant",
           content: result.answer,
           agent: result.agent,
+          sources: result.sources,
+          data: result.data,
         },
       ]);
     } catch (sendError) {
@@ -695,6 +776,33 @@ function AssistantChat({ machineId, onClose }: { machineId: string; onClose: () 
       notify(errorMessage, "error");
     } finally {
       setIsSending(false);
+    }
+  }
+
+  async function openManualSource(source: ManualSearchResult, sourceKey: string) {
+    const manualWindow = window.open("", "_blank");
+    if (!manualWindow) {
+      const message = "Your browser blocked the new tab. Allow pop-ups for this site and try again.";
+      setError(message);
+      notify(message, "error");
+      return;
+    }
+
+    setError("");
+    setOpeningSource(sourceKey);
+    try {
+      const pdf = await fetchManualPdf(machineId, source.citation.file);
+      const pdfUrl = URL.createObjectURL(pdf);
+      manualWindow.location.href = `${pdfUrl}#page=${source.citation.page}`;
+      window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60_000);
+      notify(`Opening ${source.citation.file} at page ${source.citation.page}.`, "success");
+    } catch (openError) {
+      manualWindow.close();
+      const message = readableError(openError, "Unable to open the manual.");
+      setError(message);
+      notify(message, "error");
+    } finally {
+      setOpeningSource(null);
     }
   }
 
@@ -721,6 +829,36 @@ function AssistantChat({ machineId, onClose }: { machineId: string; onClose: () 
           <article key={message.id} className={`chat-message chat-message-${message.role}`}>
             <span className="chat-message-label">{message.role === "user" ? "You" : "AROL Assistant"}</span>
             <p>{message.content}</p>
+            {message.sources && message.sources.length > 0 && (
+              <div className="chat-manual-sources" aria-label="Manual sources">
+                {message.sources.map((source, index) => (
+                  <article className="chat-manual-source" key={`${source.citation.file}-${source.citation.page}-${index}`}>
+                    <div className="chat-manual-source-heading">
+                      <strong>{source.title}</strong>
+                      <span>{manualRelevanceLabel(source.relevance)}</span>
+                    </div>
+                    <p>{source.excerpt}</p>
+                    {source.highlights.length > 0 && (
+                      <div className="chat-manual-highlights">
+                        {source.highlights.map((term) => <mark key={term}>{term}</mark>)}
+                      </div>
+                    )}
+                    <div className="chat-manual-source-footer">
+                      <small>{source.citation.file} · Page {source.citation.page} · {source.citation.section}</small>
+                      <button
+                        type="button"
+                        className="chat-open-manual-button"
+                        onClick={() => openManualSource(source, `${message.id}-${index}`)}
+                        disabled={openingSource !== null}
+                      >
+                        {openingSource === `${message.id}-${index}` ? "Opening…" : "Open source"}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+            {message.data && <ChatStructuredData data={message.data} />}
             {message.agent && <small>Agent: {message.agent}</small>}
           </article>
         ))}
@@ -913,6 +1051,10 @@ function ManualSearch({ machineId }: { machineId: string }) {
         <div className="manual-results" aria-live="polite">
           {results.map((result, index) => (
             <article className="manual-result" key={`${result.citation.file}-${result.citation.page}-${index}`}>
+              <div className="manual-result-summary">
+                <h3>{result.title}</h3>
+                <span className="manual-relevance">{manualRelevanceLabel(result.relevance)}</span>
+              </div>
               <div className="manual-citation">
                 <div>
                   <strong>{result.citation.file}</strong>
@@ -922,7 +1064,13 @@ function ManualSearch({ machineId }: { machineId: string }) {
                   {openingResult === index ? "Opening…" : `Open at page ${result.citation.page}`}
                 </button>
               </div>
-              <p>{result.content}</p>
+              <p>{result.excerpt}</p>
+              {result.highlights.length > 0 && (
+                <div className="manual-highlights" aria-label="Matched terms">
+                  <span>Matched terms</span>
+                  {result.highlights.map((term) => <mark key={term}>{term}</mark>)}
+                </div>
+              )}
             </article>
           ))}
         </div>

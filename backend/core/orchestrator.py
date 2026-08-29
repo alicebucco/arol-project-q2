@@ -23,38 +23,59 @@ class MissingMachineContextError(ValueError):
 class OrchestrationResult:
     agent: str
     answer: str
+    manual_evidence: list[dict[str, Any]] | None = None
+    structured_data: dict[str, Any] | None = None
 
 
 MACHINE_PATTERN = re.compile(r"\bMCH-[A-Z0-9-]+\b", re.IGNORECASE)
 
 
 def classify_intent(message: str) -> str:
-    """Route using explicit keywords before invoking the LLM."""
+    """Route English and Italian questions before invoking the LLM."""
 
     text = message.casefold()
-    if any(word in text for word in ("perché", "perche", "diagnos", "causa", "problema", "troubleshoot")):
+    maintenance_manual_terms = (
+        "periodic", "interval", "procedure", "required", "requirement", "due",
+        "scheduled maintenance", "how to maintain", "maintenance schedule",
+        "periodic maintenance", "intervallo", "procedura", "richiesto", "scadenza",
+    )
+    if any(
+        word in text
+        for word in (
+            "why", "diagnos", "diagnosis", "cause", "problem", "troubleshoot",
+            "perché", "perche", "causa", "problema",
+        )
+    ):
         return "troubleshoot"
-    if any(word in text for word in ("manuale", "istruzioni", "configurazione", "sicurezza")):
+    if any(
+        word in text
+        for word in (
+            "manual", "instruction", "configuration", "safety", "installation",
+            "assembly", "lubricat", "mechanical", "pneumatic", "pressur", "operation",
+            "manuale", "istruzioni", "configurazione", "sicurezza", "installazione",
+            "montaggio", "lubrificazione", "meccanico", "pneumatico", "operazione",
+        )
+    ) or ("maintenance" in text and any(term in text for term in maintenance_manual_terms)):
         return "manuals"
-    if any(word in text for word in ("allarm", "telemetr", "produzion", "uptime", "temperatura", "stato operativo")):
+    if any(
+        word in text
+        for word in (
+            "alarm", "telemetr", "production", "uptime", "temperature", "operational status",
+            "allarm", "produzion", "temperatura", "stato operativo",
+        )
+    ):
         return "iot"
-    if any(word in text for word in ("manutenz", "ticket", "intervento", "service")):
+    if any(
+        word in text
+        for word in ("maintenance", "ticket", "intervention", "service", "manutenz", "intervento")
+    ):
         return "service"
     if any(
         word in text
         for word in (
-            "ordine",
-            "ordini",
-            "preventiv",
-            "quotazione",
-            "prezzo",
-            "sconto",
-            "spedizion",
-            "costo",
-            "costa",
-            "costat",
-            "fattura",
-            "acquist",
+            "order", "quote", "price", "discount", "shipment", "cost", "invoice", "purchase",
+            "ordine", "ordini", "preventiv", "quotazione", "prezzo", "sconto", "spedizion",
+            "costo", "costa", "costat", "fattura", "acquist",
         )
     ):
         return "orders"
@@ -72,7 +93,7 @@ def _require_machine(message: str, machine_id: str | None) -> str:
     resolved = _machine_id(message, machine_id)
     if resolved is None:
         raise MissingMachineContextError(
-            "Indica la macchina (ad esempio MCH-0001) oppure apri la chat dopo aver scansionato il QR."
+            "Select a machine first, or include its ID (for example, MCH-0001) in your question."
         )
     return resolved
 
@@ -106,15 +127,11 @@ def _local_manual_answer(evidence: dict[str, Any]) -> str:
 
     chunks = evidence["manual_evidence"]
     if not chunks:
-        return "Non ho trovato passaggi pertinenti nel manuale di questa macchina."
+        return "I could not find relevant passages in this machine's manual."
 
-    excerpts = "\n\n".join(
-        f"[{_manual_reference(chunk)}]\n{chunk['content']}" for chunk in chunks
-    )
     return (
-        "Ho trovato i seguenti estratti nel manuale della macchina. "
-        "Verifica la procedura completa e le avvertenze di sicurezza indicate.\n\n"
-        f"{excerpts}"
+        f"I found {len(chunks)} relevant manual source(s). "
+        "Review the structured sources below and open the cited page for the complete procedure."
     )
 
 
@@ -129,7 +146,7 @@ def _local_troubleshoot_answer(evidence: dict[str, Any]) -> str:
             for alarm in alarms
         )
         if alarms
-        else "nessun allarme recente"
+        else "no recent alarms"
     )
     ticket_summary = (
         "; ".join(
@@ -137,14 +154,14 @@ def _local_troubleshoot_answer(evidence: dict[str, Any]) -> str:
             for ticket in tickets
         )
         if tickets
-        else "nessun ticket recente"
+        else "no recent tickets"
     )
     manual_answer = _local_manual_answer(
         {"manual_evidence": evidence["manual_evidence"]}
     )
     return (
-        f"Dati raccolti per {evidence['machine_id']}: {alarm_summary}. "
-        f"Ticket di manutenzione: {ticket_summary}.\n\n"
+        f"Evidence collected for {evidence['machine_id']}: {alarm_summary}. "
+        f"Maintenance tickets: {ticket_summary}.\n\n"
         f"{manual_answer}"
     )
 
@@ -165,15 +182,29 @@ async def handle_chat(
     # to an authorised user, but is never included in a request to an external
     # LLM provider.
     if intent == "manuals":
-        return OrchestrationResult("manuals", _local_manual_answer(evidence))
+        return OrchestrationResult(
+            "manuals",
+            _local_manual_answer(evidence),
+            manual_evidence=evidence["manual_evidence"],
+        )
     if intent == "troubleshoot":
-        return OrchestrationResult("troubleshoot", _local_troubleshoot_answer(evidence))
+        return OrchestrationResult(
+            "troubleshoot",
+            _local_troubleshoot_answer(evidence),
+            manual_evidence=evidence["manual_evidence"],
+            structured_data={
+                "machine_id": evidence["machine_id"],
+                "alarms": evidence["alarms"],
+                "telemetry": evidence["telemetry"],
+                "maintenance_tickets": evidence["maintenance_tickets"],
+            },
+        )
 
     prompt = (
         f"User question: {message}\n\n"
         "Use only the following evidence retrieved by authorised backend tools. "
         "If it is empty, say that no matching records were found. Do not invent values. "
-        "Answer in Italian and mention the relevant IDs/statuses.\n\n"
+        "Answer only in English and mention the relevant IDs and statuses.\n\n"
         f"Evidence ({intent} agent):\n{json.dumps(evidence, default=str, ensure_ascii=False)}"
     )
     system_prompt = (
@@ -181,4 +212,8 @@ async def handle_chat(
         "The backend has already enforced authentication, company scope, and role permissions. "
         "Summarise only the supplied evidence; never reveal or infer data outside it."
     )
-    return OrchestrationResult(intent, await generate_chat_reply(prompt, system_prompt=system_prompt))
+    return OrchestrationResult(
+        intent,
+        await generate_chat_reply(prompt, system_prompt=system_prompt),
+        structured_data=evidence,
+    )
