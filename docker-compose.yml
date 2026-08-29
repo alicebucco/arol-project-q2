@@ -14,8 +14,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # Development tool for inspecting the database from a browser. It is not
-  # part of the logical architecture (docs/architecture/02-containers.md).
+  # Development tool for inspecting the database from a browser. 
+  # It is not part of the logical architecture (docs/architecture/02-containers.md).
   adminer:
     image: adminer
     restart: unless-stopped

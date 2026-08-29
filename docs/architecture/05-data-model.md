@@ -1,26 +1,28 @@
-# Modello dati
+# Data Model
 
-Schema verificato contro i nomi reali di fogli e colonne di `data/AROL_Q2_synthetic_fleet_dataset.xlsx` (12 fogli, coerenti con [`../../istruzioni.md`](../../istruzioni.md)), più `manual_chunks`, tabella aggiuntiva per il RAG sui manuali (non fa parte del dataset originale).
+The schema is based on the supplied Excel workbook and is extended with
+`manual_chunks`, the local RAG table. The workbook and manuals remain in the
+Git-ignored `data/` directory.
 
-## Diagramma entità-relazione
+## Entity-relationship diagram
 
 ```mermaid
 erDiagram
-    COMPANIES ||--o{ USERS : ha
-    COMPANIES ||--o{ MACHINES : possiede
-    COMPANIES ||--o{ QUOTES : riceve
-    COMPANIES ||--o{ ORDERS : effettua
-    QUOTES ||--o{ ORDERS : "genera (via Orders.quoteId)"
-    MACHINE_MODELS ||--o{ MACHINES : istanzia
-    MACHINES ||--o{ TELEMETRY_SNAPSHOTS : genera
-    MACHINES ||--o{ ALARMS : genera
-    MACHINES ||--o{ MAINTENANCE_TICKETS : origina
-    ALARMS |o--o{ MAINTENANCE_TICKETS : "può originare (alarmId nullable)"
-    MACHINES |o--o{ QUOTE_LINES : "può referenziare (machineId nullable)"
-    QUOTES ||--o{ QUOTE_REVISIONS : ha
-    QUOTE_REVISIONS ||--o{ QUOTE_LINES : contiene
-    ORDERS ||--o{ ORDER_LINES : contiene
-    MACHINES ||--o{ MANUAL_CHUNKS : "documentata da (via serialNumber)"
+    COMPANIES ||--o{ USERS : has
+    COMPANIES ||--o{ MACHINES : owns
+    COMPANIES ||--o{ QUOTES : receives
+    COMPANIES ||--o{ ORDERS : places
+    QUOTES ||--o{ ORDERS : "generates"
+    MACHINE_MODELS ||--o{ MACHINES : defines
+    MACHINES ||--o{ TELEMETRY_SNAPSHOTS : produces
+    MACHINES ||--o{ ALARMS : raises
+    MACHINES ||--o{ MAINTENANCE_TICKETS : has
+    ALARMS |o--o{ MAINTENANCE_TICKETS : "may create"
+    MACHINES |o--o{ QUOTE_LINES : "may reference"
+    QUOTES ||--o{ QUOTE_REVISIONS : has
+    QUOTE_REVISIONS ||--o{ QUOTE_LINES : contains
+    ORDERS ||--o{ ORDER_LINES : contains
+    MACHINES ||--o{ MANUAL_CHUNKS : "is documented by"
 
     COMPANIES {
         string companyId PK
@@ -47,46 +49,46 @@ erDiagram
         string machineId PK
         string companyId FK
         string modelId FK
-        string serialNumber "chiave verso i manuali PDF"
+        string serialNumber "key to the PDF manual"
         date deliveryDate
-        string configurationProfile "produzione nominale, potenza, tensione: non in MachineModels"
-        enum plcFamily
+        string configurationProfile "machine-specific production, power, voltage"
+        string plcFamily
     }
     QUOTES {
         string quoteId PK
         string companyId FK
-        date validUntil "usata per il caso: quota approvata dopo scadenza"
+        date validUntil
     }
     QUOTE_REVISIONS {
         string quoteRevisionId PK
         string quoteId FK
-        int revisionNumber "il più alto = corrente"
-        enum revisionStatus "Draft / Submitted / Superseded / Approved / Rejected / Expired"
+        int revisionNumber "highest value is current"
+        string revisionStatus
         float discountRate
     }
     QUOTE_LINES {
         string quoteLineId PK
-        string quoteRevisionId FK "non esiste quoteId diretto"
-        string machineId FK "nullable: riga non legata a una macchina installata"
-        float price "già netto di discountRate"
+        string quoteRevisionId FK "no direct quoteId"
+        string machineId FK "nullable"
+        float price "already net of discount"
     }
     ORDERS {
         string orderId PK
-        string quoteId FK "quota da cui l'ordine è stato generato"
+        string quoteId FK
         string companyId FK
-        enum orderStatus
-        enum shipmentStatus
+        string orderStatus
+        string shipmentStatus
     }
     ORDER_LINES {
         string orderLineId PK
         string orderId FK
-        enum fulfillmentStatus
+        string fulfillmentStatus
     }
     TELEMETRY_SNAPSHOTS {
         string telemetryId PK
         string machineId FK
-        datetime timestamp "aggregato per ora"
-        enum operationalStatus
+        datetime timestamp
+        string operationalStatus
         float productionRateBph
         float uptimePercentage
         int alarmCount
@@ -95,48 +97,46 @@ erDiagram
         string alarmId PK
         string machineId FK
         datetime timestamp
-        string alarmCode "ALnnn_MNEMONIC"
-        enum severity
-        enum alarmStatus
+        string alarmCode
+        string severity
+        string alarmStatus
     }
     MAINTENANCE_TICKETS {
         string ticketId PK
         string machineId FK
-        string alarmId FK "nullable: ticket non originato da un allarme"
-        enum ticketType
-        enum ticketStatus
-        enum priority
+        string alarmId FK "nullable"
+        string ticketType
+        string ticketStatus
+        string priority
         date createdDate
     }
     MANUAL_CHUNKS {
         string chunkId PK
-        string machineId FK "via serialNumber, mai misto tra macchine"
-        string section "safety / technical_data / mechanical / troubleshooting"
+        string machineId FK
+        string section
         int page
-        vector(384) embedding "all-MiniLM-L6-v2, cosine similarity"
-        text content
+        vector(384) embedding "local MiniLM cosine similarity"
+        text content "kept internal to the backend"
     }
 ```
 
-## Semantica che deve vivere nelle query, non nei prompt
+## Query semantics
 
-Regole esplicite in `istruzioni.md` che un prompt può dimenticare o violare sotto pressione conversazionale — vanno incapsulate nel Data Access Layer ([`03-components.md`](03-components.md)):
+The following rules belong in the data-access layer, not in LLM prompts:
 
-- `QuoteLines` si raggiunge da `Quotes` solo passando per `QuoteRevisions` (non esiste `quoteId` diretto sulle righe).
-- `QuoteLines.price` è già netto dello sconto di revisione: non riapplicare `discountRate`.
-- `OrderLines` non contiene articolo/quantità/prezzo propri: il contenuto di un ordine si ottiene dalle quote lines della revisione approvata.
-- La revisione corrente di una quotazione è quella con `revisionNumber` più alto; le altre sono superseded.
-- `TelemetrySnapshots.productionRateBph`/`uptimePercentage` sono `0` quando la macchina non produce — non sono indicatori di guasto di per sé.
-- La normalità di una lettura di telemetria va giudicata rispetto a `Machines.configurationProfile` (specifico della macchina fisica), non rispetto a `MachineModels` (specifico del modello): due macchine dello stesso modello non sono intercambiabili.
+- A quote line is reached from a quote through `QuoteRevisions`; it has no direct `quoteId`.
+- `QuoteLines.price` is already net of the revision discount and must not be discounted again.
+- An order's content is obtained from the lines of its approved quote revision.
+- The current quote revision is the one with the highest `revisionNumber`.
+- Quote expiry is evaluated against the fixed business date `2026-08-05`;
+  a quote is expired only when `validUntil` is earlier than that date.
+- A zero production rate or uptime value can mean that a machine is not producing; it is not automatically a fault.
+- Telemetry must be interpreted against the physical machine's `configurationProfile`, not only against the shared machine model.
 
-## Inventario edge case noti dal dataset
+## Important edge cases
 
-`istruzioni.md` dichiara esplicitamente che individuare gli edge case è parte della valutazione del progetto. Inventario di partenza (da confermare/estendere quando il dataset reale sarà disponibile):
-
-- FK nulle che un inner join farebbe sparire silenziosamente: `QuoteLines.machineId`, `MaintenanceTickets.alarmId`, `MachineModels.primitiveDiameter`.
-- Una company con utenti ma senza macchine.
-- Una quotazione approvata dopo la propria scadenza.
-- Una quotazione la cui revisione finale è stata rifiutata.
-- Macchine le cui ore di servizio accumulate hanno superato una soglia di manutenzione definita nel loro manuale.
-
-Ognuno di questi casi è candidato naturale per il set di valutazione del chatbot (risposta corretta **e** rifiuto/assenza-dato dichiarati esplicitamente, mai un vuoto silenzioso).
+- Nullable foreign keys: `QuoteLines.machineId`, `MaintenanceTickets.alarmId`, and `MachineModels.primitiveDiameter`.
+- A company can have users without any machines.
+- A quote can be approved after its validity date, or end with a rejected revision.
+- Machines of the same model may have different configuration profiles.
+- Maintenance thresholds can be documented only in the machine-specific manual.

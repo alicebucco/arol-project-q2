@@ -174,7 +174,7 @@ def test_troubleshooting_response_includes_manual_excerpt(client: TestClient, mo
 
 def test_orders_and_quotes(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "orders", AsyncMock(return_value=[{"order_id": "ORD-1", "quote_id": "Q-1", "order_status": "Confirmed", "shipment_status": "Ready for shipment"}]))
-    monkeypatch.setattr(main, "quotes", AsyncMock(return_value=[{"quote_id": "Q-1", "valid_until": None, "revision_number": 2, "revision_status": "Approved", "discount_rate": 0.1, "line_total": 1250.5}]))
+    monkeypatch.setattr(main, "quotes", AsyncMock(return_value=[{"quote_id": "Q-1", "valid_until": None, "validity_status": "Unknown", "revision_number": 2, "revision_status": "Approved", "discount_rate": 0.1, "line_total": 1250.5}]))
 
     orders = client.get("/orders")
     quotes = client.get("/quotes")
@@ -182,6 +182,7 @@ def test_orders_and_quotes(client: TestClient, monkeypatch: pytest.MonkeyPatch) 
     assert orders.status_code == quotes.status_code == 200
     assert orders.json()[0]["shipment_status"] == "Ready for shipment"
     assert quotes.json()[0]["line_total"] == 1250.5
+    assert quotes.json()[0]["validity_status"] == "Unknown"
 
 
 def test_chat_success_and_provider_error(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

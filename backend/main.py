@@ -134,6 +134,7 @@ class OrderRecord(BaseModel):
 class QuoteRecord(BaseModel):
     quote_id: str
     valid_until: str | None = None
+    validity_status: Literal["Valid", "Expired", "Unknown"]
     revision_number: int | None = None
     revision_status: str | None = None
     discount_rate: float | None = None
@@ -532,9 +533,14 @@ async def company_quotes(
     return [
         QuoteRecord(
             valid_until=row["valid_until"].isoformat() if row["valid_until"] else None,
+            validity_status=row["validity_status"],
             discount_rate=float(row["discount_rate"]) if row["discount_rate"] is not None else None,
             line_total=float(row["line_total"]),
-            **{key: value for key, value in row.items() if key not in {"valid_until", "discount_rate", "line_total"}},
+            **{
+                key: value
+                for key, value in row.items()
+                if key not in {"valid_until", "validity_status", "discount_rate", "line_total"}
+            },
         )
         for row in rows
     ]

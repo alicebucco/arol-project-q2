@@ -78,6 +78,7 @@ type OrderRecord = {
 type QuoteRecord = {
   quote_id: string;
   valid_until: string | null;
+  validity_status: "Valid" | "Expired" | "Unknown";
   revision_number: number | null;
   revision_status: string | null;
   discount_rate: number | null;
@@ -540,8 +541,8 @@ function ChatStructuredData({ data }: { data: ChatData }) {
       {data.quotes && data.quotes.length > 0 && (
         <article className="chat-data-card">
           <h4>Quotes</h4>
-          <div className="chat-data-table-wrap"><table><thead><tr><th>Quote</th><th>Status</th><th>Total</th></tr></thead><tbody>
-            {data.quotes.map((quote) => <tr key={quote.quote_id}><td>{quote.quote_id}</td><td>{quote.revision_status ?? "—"}</td><td>{formatCurrency(quote.line_total)}</td></tr>)}
+          <div className="chat-data-table-wrap"><table><thead><tr><th>Quote</th><th>Revision</th><th>Validity</th><th>Total</th></tr></thead><tbody>
+            {data.quotes.map((quote) => <tr key={quote.quote_id}><td>{quote.quote_id}</td><td>{quote.revision_status ?? "—"}</td><td>{quote.validity_status}</td><td>{formatCurrency(quote.line_total)}</td></tr>)}
           </tbody></table></div>
         </article>
       )}
@@ -591,8 +592,8 @@ function QuotesPage() {
   }, [notify]);
 
   return <RecordsLayout eyebrow="QUOTES" title="Quotes" intro="Review quote revisions, validity, discounts and totals." loading={loading} error={error} empty={quotes.length === 0 ? "No quotes available." : undefined}>
-    <div className="records-table-wrap"><table className="records-table"><thead><tr><th>Quote</th><th>Revision</th><th>Status</th><th>Valid until</th><th>Discount</th><th>Total</th></tr></thead><tbody>
-      {quotes.map((quote) => <tr key={quote.quote_id}><td>{quote.quote_id}</td><td>{quote.revision_number ?? "—"}</td><td>{quote.revision_status ?? "—"}</td><td>{quote.valid_until ? formatDateTime(quote.valid_until) : "—"}</td><td>{quote.discount_rate === null ? "—" : `${(quote.discount_rate * 100).toLocaleString("en-GB")}%`}</td><td>{formatCurrency(quote.line_total)}</td></tr>)}
+    <div className="records-table-wrap"><table className="records-table"><thead><tr><th>Quote</th><th>Revision</th><th>Status</th><th>Valid until</th><th>Validity</th><th>Discount</th><th>Total</th></tr></thead><tbody>
+      {quotes.map((quote) => <tr key={quote.quote_id}><td>{quote.quote_id}</td><td>{quote.revision_number ?? "—"}</td><td>{quote.revision_status ?? "—"}</td><td>{quote.valid_until ? formatDateTime(quote.valid_until) : "—"}</td><td>{quote.validity_status}</td><td>{quote.discount_rate === null ? "—" : `${(quote.discount_rate * 100).toLocaleString("en-GB")}%`}</td><td>{formatCurrency(quote.line_total)}</td></tr>)}
     </tbody></table></div>
   </RecordsLayout>;
 }

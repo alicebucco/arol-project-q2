@@ -11,6 +11,7 @@ from agents.orders import orders, quotes
 from agents.service import maintenance_tickets
 from agents.troubleshoot import investigate
 from core.auth import AuthContext
+from core.business_time import BUSINESS_TODAY
 from core.data_access import MachineNotFoundError
 from core.llm import generate_chat_reply
 
@@ -204,7 +205,9 @@ async def handle_chat(
         f"User question: {message}\n\n"
         "Use only the following evidence retrieved by authorised backend tools. "
         "If it is empty, say that no matching records were found. Do not invent values. "
-        "Answer only in English and mention the relevant IDs and statuses.\n\n"
+        "Answer only in English and mention the relevant IDs and statuses. "
+        f"Use {BUSINESS_TODAY.isoformat()} as today's date when interpreting "
+        "quote expiry, open items, or overdue work.\n\n"
         f"Evidence ({intent} agent):\n{json.dumps(evidence, default=str, ensure_ascii=False)}"
     )
     system_prompt = (

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.auth import AuthContext, ensure_company_access, ensure_visibility
+from core.business_time import quote_validity_status
 from core.db import connection
 
 
@@ -281,6 +282,7 @@ async def get_company_quotes(company_id: str, limit: int) -> list[dict[str, Any]
         {
             "quote_id": row[0],
             "valid_until": row[1],
+            "validity_status": quote_validity_status(row[1]),
             "revision_number": row[2],
             "revision_status": row[3],
             "discount_rate": row[4],

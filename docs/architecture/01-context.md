@@ -1,17 +1,25 @@
-# C4 — Livello 1: System Context
+# C4 — Level 1: System Context
 
-## Scopo
+## Purpose
 
-Mostra il sistema **AROL Customer Platform** come una scatola nera, chi lo usa e con quali sistemi esterni scambia dati. Nessun dettaglio interno: quello è oggetto di [`02-containers.md`](02-containers.md).
+The **AROL Customer Platform** helps customer-company users ask questions about
+their fleet, technical manuals, alarms, maintenance records, quotes, and
+orders. It keeps the supplied synthetic dataset and restricted manuals within
+the local environment.
 
-## Attori e sistemi esterni
+## Actors and external systems
 
-- **Utente** — personale delle aziende clienti, con un profilo `visibility` (`full` / `technician` / `commercial`, vedi [`05-data-model.md`](05-data-model.md)) che determina quali domini di dati può interrogare. Accede scansionando il QR applicato alla macchina (entra già scoped su quella macchina) oppure navigando il portale web.
-- **Provider LLM** — API cloud esterna usata dal Backend per generazione delle risposte e function-calling degli agenti. In questo progetto è **Mercury** (Inception Labs), raggiunto tramite un'integrazione generica compatibile OpenAI (vedi [`../decisions/0008-provider-llm-generico-mercury.md`](../decisions/0008-provider-llm-generico-mercury.md)) — non le più comuni OpenAI/Azure OpenAI/Anthropic. È l'**unico sistema esterno reale** di questo progetto. L'embedding per il RAG sui manuali (vedi [`03-components.md`](03-components.md)) potrebbe richiedere un endpoint separato, se Mercury non ne espone uno proprio: da verificare in fase di implementazione.
+- **Customer user** — an operator, technician, or commercial contact. Their
+  company and visibility profile determine what information they can access.
+- **LLM provider** — an external OpenAI-compatible chat-completion API used for
+  general and structured-data answers. The backend is the only component that
+  calls it.
 
-**Nota di scope rispetto alle slide AROL originali:** le slide 4 e 8 della presentazione mostrano ERP, CRM e IoT Platform come sistemi esterni distinti a cui la piattaforma si collega. In questo progetto universitario questi sistemi **non esistono**: sono simulati dal dataset sintetico fornito (`AROL_Q2_synthetic_fleet_dataset.xlsx` + `manuals/`), caricato una tantum nel database interno alla piattaforma (vedi [`02-containers.md`](02-containers.md)). Non sono quindi rappresentati come sistemi esterni in questo diagramma di contesto: il loro contenuto è già "dentro" il sistema.
+The Excel workbook and the manuals are local project data, not external
+systems. Manual text is embedded and retrieved locally, and never passed to the
+LLM provider.
 
-## Diagramma
+## Diagram
 
 ```mermaid
 flowchart TB
@@ -19,16 +27,16 @@ flowchart TB
     classDef system fill:#1168bd,stroke:#0b4884,color:#ffffff
     classDef external fill:#999999,stroke:#6b6b6b,color:#ffffff
 
-    User["<b>Utente</b><br/>Operatore di linea, tecnico<br/>o referente commerciale<br/>(scope: visibility + companyId)"]:::person
+    User["<b>Customer user</b><br/>Operator, technician, or<br/>commercial contact"]:::person
 
     subgraph Boundary["AROL Customer Platform"]
-        System["<b>AROL Customer Platform</b><br/>Chatbot ad agenti AI per fleet<br/>management e troubleshooting"]:::system
+        System["<b>AROL Customer Platform</b><br/>Authenticated chat for fleet management,<br/>manual retrieval, and troubleshooting"]:::system
     end
 
-    LLM["<b>Provider LLM</b><br/>(sistema esterno)<br/>Chat completion, function-calling,<br/>embedding"]:::external
+    LLM["<b>LLM provider</b><br/>External chat-completion API"]:::external
 
-    User -->|"Scansiona QR macchina /<br/>usa il portale web (HTTPS)"| System
-    System -->|"Risposte in streaming,<br/>citazioni alle fonti"| User
-    System -->|"Prompt, tool-calling,<br/>richieste di embedding (HTTPS)"| LLM
-    LLM -->|"Completions, tool calls,<br/>vettori di embedding"| System
+    User -->|"Uses the web application (HTTPS)"| System
+    System -->|"English answers, records, and citations"| User
+    System -->|"General or structured-data prompts only (HTTPS)"| LLM
+    LLM -->|"Chat completion"| System
 ```

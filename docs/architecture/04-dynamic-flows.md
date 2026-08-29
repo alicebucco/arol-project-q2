@@ -1,86 +1,62 @@
-# Diagrammi dinamici — flussi chiave
+# Dynamic Flows
 
-Diagrammi di sequenza per i tre scenari che più caratterizzano questa architettura: ingresso da QR, ragionamento multi-agente, e rifiuto esplicito per accesso fuori scope. Fanno riferimento ai componenti definiti in [`03-components.md`](03-components.md).
+These sequence diagrams describe three representative flows: authentication,
+local manual retrieval, and a request rejected by role policy.
 
-## 1. Ingresso da QR
-
-La scansione del QR è una superficie di controllo accessi (contratto trasversale #5 in [`03-components.md`](03-components.md)): una macchina di un'altra azienda deve produrre un rifiuto esplicito, non uno scoping-e-risposta silenzioso.
+## 1. Login
 
 ```mermaid
 sequenceDiagram
-    actor U as Utente
-    participant FE as Frontend SPA
-    participant Auth as Auth/Session
-    participant DAL as Data Access Layer
-    participant DB as Postgres
+    actor U as Customer user
+    participant FE as Frontend
+    participant API as Backend API
+    participant DB as PostgreSQL
 
-    U->>FE: Scansiona QR → apre /machines/17478
-    FE->>Auth: GET /machines/17478 (JWT utente)
-    Auth->>DAL: getMachine(serialNumber=17478, companyId=<dalla sessione>)
-    DAL->>DB: SELECT ... WHERE serialNumber = ? AND companyId = ?
-    alt macchina appartiene alla company dell'utente
-        DB-->>DAL: riga macchina
-        DAL-->>Auth: machineId, modello, config
-        Auth-->>FE: sessione chat scoped su machineId
-        FE-->>U: chat aperta, contesto macchina precompilato
-    else macchina di un'altra company o inesistente
-        DB-->>DAL: nessuna riga
-        DAL-->>Auth: NOT_FOUND_OR_FORBIDDEN
-        Auth-->>FE: 403 esplicito
-        FE-->>U: "Questa macchina non è associata al tuo account" (mai silenzio o pagina vuota)
-    end
+    U->>FE: Enters user ID and password
+    FE->>API: POST /auth/login
+    API->>DB: Read user and bcrypt password hash
+    DB-->>API: User, company, visibility, hash
+    API->>API: Verify password and sign JWT
+    API-->>FE: JWT and user profile
+    FE-->>U: Opens authenticated application
+```
+## 2. Manual question
+
+```mermaid
+sequenceDiagram
+    actor U as Customer user
+    participant FE as Frontend
+    participant API as Backend API
+    participant M as Manuals agent
+    participant DB as PostgreSQL + pgvector
+
+    U->>FE: “What are the installation requirements?”
+    FE->>API: POST /chat with JWT and machine context
+    API->>API: Resolve company and visibility
+    API->>M: Retrieve for the authorised machine
+    M->>DB: Vector search and local re-ranking
+    DB-->>M: Relevant local chunks and metadata
+    M-->>API: Excerpts and file/page citations
+    API-->>FE: English answer and manual sources
+    FE-->>U: Answer with expandable source cards
+    Note over API: No manual chunk is sent to the external LLM
 ```
 
-## 2. Domanda cross-dominio (troubleshooting)
-
-Esempio: *"Perché la macchina 17478 continua ad allarmare?"* — richiede di comporre 3 agenti, non uno solo.
+## 3. Request outside the user's role
 
 ```mermaid
 sequenceDiagram
-    actor U as Utente
-    participant Orch as Orchestrator
-    participant Trouble as Troubleshoot Agent
-    participant IoT as IoT Agent
-    participant Svc as Service Agent
-    participant Man as Manuals Agent
+    actor U as Technician
+    participant FE as Frontend
+    participant API as Backend API
+    participant O as Orders agent
+    participant DB as PostgreSQL
 
-    U->>Orch: "Perché la macchina 17478 continua ad allarmare?"
-    Orch->>Orch: intent routing → dominio troubleshooting
-    Orch->>Trouble: delega con contesto (machineId, companyId, visibility)
-
-    Trouble->>IoT: getRecentAlarms(machineId)
-    IoT-->>Trouble: [{alarmCode: AL017_LOW_AIR_PRESSURE, severity, timestamp}, ...]
-
-    Trouble->>Svc: getMaintenanceHistory(machineId)
-    Svc-->>Trouble: [{ticketType, ticketStatus, createdDate}, ...]
-
-    Trouble->>Man: retrieve(machineId, query="LOW_AIR_PRESSURE", section="troubleshooting")
-    Man-->>Trouble: {source: manual, file, page, section, testo causa/rimedio}
-
-    Trouble->>Trouble: sintesi: correla allarmi + manutenzione + procedura manuale
-    Trouble-->>Orch: risposta + citazioni (tabella Alarms + pagina manuale)
-    Orch-->>U: risposta in streaming con citazioni cliccabili
-```
-
-## 3. Richiesta fuori scope (accesso negato)
-
-Esempio: utente con `visibility = technician` chiede dati commerciali. Il divieto è deciso nel Data Access Layer, non nel prompt (contratto trasversale #2).
-
-```mermaid
-sequenceDiagram
-    actor U as Utente (visibility=technician)
-    participant Orch as Orchestrator
-    participant Orders as Orders Agent
-    participant MCP as commercial-mcp
-    participant DAL as Data Access Layer
-
-    U->>Orch: "Quanto è costata la macchina 17478?"
-    Orch->>Orch: intent routing → dominio commerciale
-    Orch->>Orders: delega (companyId, visibility=technician — mai esposto al modello come parametro)
-    Orders->>MCP: crm.getQuoteHistory(machineId=17478)
-    MCP->>DAL: query con visibility iniettata lato server
-    DAL-->>MCP: ACCESS_DENIED (visibility=technician non ha accesso al dominio commerciale)
-    MCP-->>Orders: ACCESS_DENIED (tipizzato)
-    Orders-->>Orch: ACCESS_DENIED
-    Orch-->>U: "Non hai i permessi per vedere i dati commerciali di questa macchina" (rifiuto esplicito, mai risultato vuoto)
+    U->>FE: “What did this machine cost?”
+    FE->>API: POST /chat with JWT
+    API->>O: Commercial-data request
+    O->>O: Check visibility = commercial
+    O-->>API: HTTP 403 Access denied
+    API-->>FE: Explicit access denial
+    FE-->>U: “You do not have access to commercial data.”
 ```

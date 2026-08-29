@@ -1,7 +1,8 @@
 # Relational database and Excel import
 
-`init/002-create-relational-schema.sql` creates only the 12 tables required by
-the Excel dataset. PDF and RAG processing are intentionally out of scope.
+`init/002-create-relational-schema.sql` creates the 12 tables required by the
+Excel dataset. Local RAG storage is added separately by
+`init/003-create-manual-chunks.sql`.
 
 When the course workbook is available locally in `data/`, start the database
 and run the importer from the temporary Python container:
