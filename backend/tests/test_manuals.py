@@ -60,6 +60,18 @@ def test_rerank_rejects_navigation_text_and_duplicate_pages() -> None:
     assert all(result["relevance"] >= result["similarity"] for result in results)
 
 
+def test_rerank_returns_low_confidence_evidence_when_the_threshold_would_hide_everything() -> None:
+    candidates = [
+        {"file": "manual.pdf", "page": 12, "section": "general", "content": "Professional roles include operators and maintenance personnel.", "similarity": 0.31},
+        {"file": "manual.pdf", "page": 13, "section": "general", "content": "The employer is responsible for training the operators.", "similarity": 0.28},
+    ]
+
+    results = _rerank(candidates, "What are the users professional roles?", 3)
+
+    assert [result["page"] for result in results] == [12, 13]
+    assert all(result["similarity"] < 0.40 for result in results)
+
+
 def test_chunking_preserves_sentence_boundaries_when_possible() -> None:
     text = "First complete sentence. Second complete sentence. Third complete sentence."
     chunks = split_text(text, size=55, overlap=0)

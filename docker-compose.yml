@@ -51,6 +51,26 @@ services:
       db:
         condition: service_healthy
 
+  # Local-only evaluation tool. It can write metrics under data/evaluations/;
+  # the API service above intentionally keeps the manual directory read-only.
+  rag-evaluator:
+    profiles: ["tools"]
+    build:
+      context: ./backend
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+      - ./db:/db:ro
+      - ./data:/data
+      - model_cache:/models
+    environment:
+      HF_HOME: /models
+      HF_HUB_DISABLE_XET: "1"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+
   # Frontend code is expected in ./frontend (React + TypeScript, Vite).
   # See docs/architecture/02-containers.md.
   frontend:

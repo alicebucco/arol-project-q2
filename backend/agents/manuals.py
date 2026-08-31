@@ -18,7 +18,7 @@ from core.data_access import authorize_machine, manual_file_belongs_to_machine, 
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 EMBEDDING_DIMENSION = 384
 MINIMUM_SIMILARITY = 0.40
-CANDIDATE_MULTIPLIER = 6
+CANDIDATE_MULTIPLIER = 20
 STOP_WORDS = frozenset(
     {
         "about", "after", "before", "could", "find", "from", "have", "into",
@@ -126,31 +126,42 @@ def _rerank(candidates: list[dict[str, Any]], query: str, limit: int) -> list[di
     """Combine vector relevance, lexical evidence, section affinity and diversity."""
     query_terms = _terms(query)
     ranked: list[tuple[float, dict[str, Any]]] = []
+    fallback_ranked: list[tuple[float, dict[str, Any]]] = []
     for candidate in candidates:
         similarity = candidate["similarity"]
-        if similarity < MINIMUM_SIMILARITY or _is_navigation_text(candidate["content"]):
+        if _is_navigation_text(candidate["content"]):
             continue
         lexical_score = len(query_terms & _terms(candidate["content"])) / max(len(query_terms), 1)
         score = similarity + (0.20 * lexical_score) + _section_bonus(query_terms, candidate["section"])
-        ranked.append((score, candidate))
+        if similarity >= MINIMUM_SIMILARITY:
+            ranked.append((score, candidate))
+        else:
+            fallback_ranked.append((score, candidate))
 
     ranked.sort(key=lambda item: item[0], reverse=True)
-    selected: list[dict[str, Any]] = []
-    seen_pages: set[tuple[str, int]] = set()
-    for score, candidate in ranked:
-        page_key = (candidate["file"], candidate["page"])
-        if page_key in seen_pages:
-            continue
-        result = dict(candidate)
-        result["excerpt"] = _excerpt(result["content"], query_terms)
-        result["title"] = SECTION_TITLES.get(result["section"], "Manual guidance")
-        result["highlights"] = _highlights(result["content"], query_terms)
-        result["relevance"] = round(min(score, 1.0), 3)
-        selected.append(result)
-        seen_pages.add(page_key)
-        if len(selected) == limit:
-            break
-    return selected
+    fallback_ranked.sort(key=lambda item: item[0], reverse=True)
+
+    def select(ranked_candidates: list[tuple[float, dict[str, Any]]]) -> list[dict[str, Any]]:
+        selected: list[dict[str, Any]] = []
+        seen_pages: set[tuple[str, int]] = set()
+        for score, candidate in ranked_candidates:
+            page_key = (candidate["file"], candidate["page"])
+            if page_key in seen_pages:
+                continue
+            result = dict(candidate)
+            result["excerpt"] = _excerpt(result["content"], query_terms)
+            result["title"] = SECTION_TITLES.get(result["section"], "Manual guidance")
+            result["highlights"] = _highlights(result["content"], query_terms)
+            result["relevance"] = round(min(score, 1.0), 3)
+            selected.append(result)
+            seen_pages.add(page_key)
+            if len(selected) == limit:
+                break
+        return selected
+
+    selected = select(ranked)
+    # A low-confidence citation is more useful than a blank manual search.
+    return selected if selected else select(fallback_ranked)
 
 
 async def search(

@@ -1,0 +1,33 @@
+services:
+  integration-db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: integration_user
+      POSTGRES_PASSWORD: integration_password
+      POSTGRES_DB: arol_integration
+    ports:
+      - "55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U integration_user -d arol_integration"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  integration-backend:
+    profiles: ["test-runner"]
+    build:
+      context: ./backend
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    environment:
+      RUN_DB_INTEGRATION: "1"
+      INTEGRATION_POSTGRES_HOST: integration-db
+      INTEGRATION_POSTGRES_PORT: "5432"
+    depends_on:
+      integration-db:
+        condition: service_healthy

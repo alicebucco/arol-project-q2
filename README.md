@@ -116,6 +116,42 @@ docker compose exec frontend npm test
 
 The frontend command performs TypeScript validation and a production build.
 
+### Isolated PostgreSQL integration tests
+
+The API integration tests use a disposable PostgreSQL database on port `55432`.
+They apply the same schema migrations as the development database, create a
+small synthetic dataset, verify a real bcrypt login and JWT-protected API
+requests, and never read the local Excel file or manuals.
+
+```powershell
+docker compose -f docker-compose.integration.yml up -d --wait
+docker compose -f docker-compose.integration.yml run --rm integration-backend sh -c "pip install -r requirements-dev.txt && pytest tests/integration"
+docker compose -f docker-compose.integration.yml down
+```
+
+### Frontend end-to-end tests
+
+```powershell
+cd frontend
+npm run test:e2e
+```
+
+Playwright mocks backend responses, so browser tests do not require project
+credentials, the production database, or non-publishable manuals.
+
+### Local RAG evaluation
+
+Create a local golden dataset under `data/evaluations/` (which is ignored by
+Git), then run the evaluator against the locally indexed manuals:
+
+```powershell
+docker compose run --rm rag-evaluator python scripts/evaluate_rag.py --output /data/evaluations/rag_evaluation_report.json
+```
+
+The report contains file Recall@K, mean reciprocal rank, keyword coverage, exact
+page Recall@K, and page Recall@K within two adjacent pages. It contains citations
+and metrics only, never raw manual text.
+
 ## Repository layout
 
 ```text

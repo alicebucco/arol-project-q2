@@ -7,6 +7,8 @@ node_modules/
 .next/
 build/
 dist/
+test-results/
+playwright-report/
 
 *.sqlite3
 *.db
