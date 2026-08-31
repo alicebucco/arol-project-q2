@@ -21,6 +21,9 @@ type MachineContext = MachineSummary & {
   company_name: string;
   model_id: string;
   operational_context: string;
+  delivery_date: string | null;
+  plc_family: string | null;
+  software_version: string | null;
 };
 
 type ChatMessage = {
@@ -47,6 +50,21 @@ type AlarmRecord = {
   alarm_status: string;
 };
 
+type AlarmPattern = {
+  alarm_code: string;
+  occurrences: number;
+  first_seen: string;
+  last_seen: string;
+  latest_status: string;
+};
+
+type ProductionAssessment = {
+  nominal_production_rate_bph: number | null;
+  production_vs_nominal_percent: number | null;
+  status: "within_expected_range" | "below_nominal_reference" | "above_nominal_reference" | "not_assessed";
+  reason: string;
+};
+
 type TelemetryRecord = {
   timestamp: string;
   operational_status: string;
@@ -56,6 +74,7 @@ type TelemetryRecord = {
   temperature_c: number | null;
   energy_kwh: number | null;
   health_note: string | null;
+  production_assessment?: ProductionAssessment | null;
 };
 
 type MaintenanceTicketRecord = {
@@ -75,6 +94,36 @@ type OrderRecord = {
   shipment_status: string;
 };
 
+type OrderItem = {
+  quote_line_id: string;
+  machine_id: string | null;
+  description: string | null;
+  price: number;
+};
+
+type OrderDetail = OrderRecord & {
+  currency: string | null;
+  approved_revision: { revision_number: number; revision_status: string; discount_rate: number | null } | null;
+  items: OrderItem[];
+  fulfillment: { order_line_id: string; fulfillment_status: string }[];
+};
+
+type UserProfile = {
+  user_id: string;
+  company_id: string;
+  visibility: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  job_title: string;
+  company_name: string;
+  country: string;
+  city: string;
+  sector: string;
+  currency: string;
+  locale: string;
+};
+
 type QuoteRecord = {
   quote_id: string;
   valid_until: string | null;
@@ -85,13 +134,64 @@ type QuoteRecord = {
   line_total: number;
 };
 
+type QuoteLineDetail = {
+  quote_line_id: string;
+  machine_id: string | null;
+  description: string | null;
+  price: number;
+};
+
+type QuoteRevisionDetail = {
+  quote_revision_id: string;
+  revision_number: number;
+  revision_status: string;
+  discount_rate: number | null;
+  issued_at: string | null;
+  change_summary: string | null;
+  line_total: number;
+  lines: QuoteLineDetail[];
+};
+
+type QuoteLineChange = {
+  change: "added" | "removed" | "price_changed";
+  machine_id: string | null;
+  description: string | null;
+  previous_price: number | null;
+  current_price: number | null;
+};
+
+type QuoteHistory = {
+  quote_id: string;
+  valid_until: string | null;
+  validity_status: "Valid" | "Expired" | "Unknown";
+  currency: string | null;
+  created_at: string | null;
+  description: string | null;
+  revisions: QuoteRevisionDetail[];
+  latest_comparison: QuoteLineChange[];
+};
+
+type MaintenanceObservation = {
+  machine_id: string;
+  observed_productive_hours: number;
+  first_snapshot: string | null;
+  last_snapshot: string | null;
+  snapshot_count: number;
+  documented_threshold_hours: number[];
+  reached_threshold_hours: number[];
+  next_threshold_hours: number | null;
+  scope_note: string;
+};
+
 type ChatData = {
   machine_id?: string;
   alarms?: AlarmRecord[];
+  alarm_patterns?: AlarmPattern[];
   telemetry?: TelemetryRecord[];
   maintenance_tickets?: MaintenanceTicketRecord[];
   orders?: OrderRecord[];
   quotes?: QuoteRecord[];
+  maintenance_observation?: MaintenanceObservation;
 };
 
 type ServiceTicket = MaintenanceTicketRecord & {
@@ -280,6 +380,7 @@ function AppHeader() {
         <button type="button" onClick={() => navigate("/orders")}>Orders</button>
         <button type="button" onClick={() => navigate("/quotes")}>Quotes</button>
         <button type="button" onClick={() => navigate("/service")}>Support</button>
+        <button type="button" onClick={() => navigate("/profile")}>Profile</button>
       </nav>
       <div className="header-actions">
         <span>{userId}</span>
@@ -490,17 +591,32 @@ function HomePage() {
   );
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "EUR" }).format(value);
+function formatCurrency(value: number, currency = "EUR") {
+  return new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(value);
+}
+
+function productionReference(entry: TelemetryRecord) {
+  const assessment = entry.production_assessment;
+  if (!assessment || assessment.nominal_production_rate_bph === null) return "Reference unavailable";
+  if (assessment.production_vs_nominal_percent === null) return "Not assessed";
+  const labels = {
+    within_expected_range: "Within expected range",
+    below_nominal_reference: "Below nominal reference",
+    above_nominal_reference: "Above nominal reference",
+    not_assessed: "Not assessed",
+  };
+  return `${assessment.production_vs_nominal_percent}% · ${labels[assessment.status]}`;
 }
 
 function ChatStructuredData({ data }: { data: ChatData }) {
   const hasRecords = Boolean(
     data.alarms?.length
+    || data.alarm_patterns?.length
     || data.telemetry?.length
     || data.maintenance_tickets?.length
     || data.orders?.length
-    || data.quotes?.length,
+    || data.quotes?.length
+    || data.maintenance_observation,
   );
   if (!hasRecords) return null;
 
@@ -514,11 +630,19 @@ function ChatStructuredData({ data }: { data: ChatData }) {
           </tbody></table></div>
         </article>
       )}
+      {data.alarm_patterns && data.alarm_patterns.length > 0 && (
+        <article className="chat-data-card">
+          <h4>Repeated alarm conditions</h4>
+          <div className="chat-data-table-wrap"><table><thead><tr><th>Code</th><th>Occurrences</th><th>First seen</th><th>Last seen</th><th>Latest status</th></tr></thead><tbody>
+            {data.alarm_patterns.map((pattern) => <tr key={pattern.alarm_code}><td>{pattern.alarm_code}</td><td>{pattern.occurrences}</td><td>{formatDateTime(pattern.first_seen)}</td><td>{formatDateTime(pattern.last_seen)}</td><td>{pattern.latest_status}</td></tr>)}
+          </tbody></table></div>
+        </article>
+      )}
       {data.telemetry && data.telemetry.length > 0 && (
         <article className="chat-data-card">
           <h4>Latest telemetry</h4>
-          <div className="chat-data-table-wrap"><table><thead><tr><th>Date</th><th>Status</th><th>Production</th><th>Uptime</th><th>Temp.</th></tr></thead><tbody>
-            {data.telemetry.map((entry) => <tr key={entry.timestamp}><td>{formatDateTime(entry.timestamp)}</td><td>{entry.operational_status}</td><td>{entry.production_rate_bph.toLocaleString("en-GB")} bph</td><td>{entry.uptime_percentage}%</td><td>{entry.temperature_c ?? "—"}{entry.temperature_c !== null ? " °C" : ""}</td></tr>)}
+          <div className="chat-data-table-wrap"><table><thead><tr><th>Date</th><th>Status</th><th>Production</th><th>Reference</th><th>Uptime</th><th>Temp.</th></tr></thead><tbody>
+            {data.telemetry.map((entry) => <tr key={entry.timestamp}><td>{formatDateTime(entry.timestamp)}</td><td>{entry.operational_status}</td><td>{entry.production_rate_bph.toLocaleString("en-GB")} bph</td><td title={entry.production_assessment?.reason}>{productionReference(entry)}</td><td>{entry.uptime_percentage}%</td><td>{entry.temperature_c ?? "—"}{entry.temperature_c !== null ? " °C" : ""}</td></tr>)}
           </tbody></table></div>
         </article>
       )}
@@ -546,6 +670,25 @@ function ChatStructuredData({ data }: { data: ChatData }) {
           </tbody></table></div>
         </article>
       )}
+      {data.maintenance_observation && (
+        <article className="chat-data-card">
+          <h4>Maintenance observation</h4>
+          <p>
+            {data.maintenance_observation.observed_productive_hours.toLocaleString("en-GB")} productive hours observed
+            {data.maintenance_observation.first_snapshot && data.maintenance_observation.last_snapshot
+              ? ` from ${formatDateTime(data.maintenance_observation.first_snapshot)} to ${formatDateTime(data.maintenance_observation.last_snapshot)}`
+              : " in the available telemetry window"}.
+          </p>
+          <p>
+            Thresholds reached: {data.maintenance_observation.reached_threshold_hours.length > 0
+              ? data.maintenance_observation.reached_threshold_hours.map((threshold) => `${threshold} h`).join(", ")
+              : "none"}. Next threshold: {data.maintenance_observation.next_threshold_hours === null
+              ? "not documented"
+              : `${data.maintenance_observation.next_threshold_hours} h`}.
+          </p>
+          <p>{data.maintenance_observation.scope_note}</p>
+        </article>
+      )}
     </section>
   );
 }
@@ -555,6 +698,7 @@ function OrdersPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const { notify } = useNotifications();
+  const navigate = useNavigate();
 
   useEffect(() => {
     apiGet<OrderRecord[]>("/orders")
@@ -567,10 +711,78 @@ function OrdersPage() {
       .finally(() => setLoading(false));
   }, [notify]);
 
-  return <RecordsLayout eyebrow="ORDERS" title="Your orders" intro="Review order and shipment status." loading={loading} error={error} empty={orders.length === 0 ? "No orders available." : undefined}>
-    <div className="records-table-wrap"><table className="records-table"><thead><tr><th>Order</th><th>Quote</th><th>Order status</th><th>Shipment</th></tr></thead><tbody>
-      {orders.map((order) => <tr key={order.order_id}><td>{order.order_id}</td><td>{order.quote_id}</td><td>{order.order_status}</td><td>{order.shipment_status}</td></tr>)}
+  return <RecordsLayout eyebrow="ORDERS" title="Your orders" intro="Review order, shipment, approved quote content and fulfilment." loading={loading} error={error} empty={orders.length === 0 ? "No orders available." : undefined}>
+    <div className="records-table-wrap"><table className="records-table"><thead><tr><th>Order</th><th>Quote</th><th>Order status</th><th>Shipment</th><th></th></tr></thead><tbody>
+      {orders.map((order) => <tr key={order.order_id}><td>{order.order_id}</td><td>{order.quote_id}</td><td>{order.order_status}</td><td>{order.shipment_status}</td><td><button type="button" className="records-link" onClick={() => navigate(`/orders/${encodeURIComponent(order.order_id)}`)}>Details</button></td></tr>)}
     </tbody></table></div>
+  </RecordsLayout>;
+}
+
+function OrderDetailPage() {
+  const { orderId } = useParams();
+  const navigate = useNavigate();
+  const { notify } = useNotifications();
+  const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!orderId) return;
+    apiGet<OrderDetail>(`/orders/${encodeURIComponent(orderId)}`)
+      .then(setOrder)
+      .catch((loadError: unknown) => {
+        const message = readableError(loadError, "Unable to load order details.");
+        setError(message);
+        notify(message, "error");
+      })
+      .finally(() => setLoading(false));
+  }, [orderId, notify]);
+
+  return <RecordsLayout eyebrow="ORDER DETAILS" title={order?.order_id ?? "Order details"} intro="Order content is taken from the approved quote revision; fulfilment is tracked separately." loading={loading} error={error} empty={!loading && !error && !order ? "Order not found." : undefined}>
+    {order && <>
+      <button className="back-link" type="button" onClick={() => navigate("/orders")}>← All orders</button>
+      <p className="page-intro">Quote {order.quote_id} · order {order.order_status} · shipment {order.shipment_status}</p>
+      <section className="operational-grid" aria-label="Order details">
+        <article className="data-panel">
+          <h3>Approved quote revision</h3>
+          {order.approved_revision ? <p>Revision {order.approved_revision.revision_number} · {order.approved_revision.revision_status} · discount {order.approved_revision.discount_rate === null ? "—" : `${(order.approved_revision.discount_rate * 100).toLocaleString("en-GB")}%`}</p> : <p className="data-empty">No approved quote revision is available for this order.</p>}
+        </article>
+        <article className="data-panel">
+          <h3>Fulfilment</h3>
+          {order.fulfillment.length === 0 ? <p className="data-empty">No fulfilment lines are available.</p> : <div className="data-table-wrap"><table><thead><tr><th>Line</th><th>Status</th></tr></thead><tbody>{order.fulfillment.map((line) => <tr key={line.order_line_id}><td>{line.order_line_id}</td><td>{line.fulfillment_status}</td></tr>)}</tbody></table></div>}
+        </article>
+        <article className="data-panel data-panel-wide">
+          <h3>Ordered content</h3>
+          {order.items.length === 0 ? <p className="data-empty">No items are available from the approved quote revision.</p> : <div className="data-table-wrap"><table><thead><tr><th>Description</th><th>Machine</th><th>Net price</th></tr></thead><tbody>{order.items.map((item) => <tr key={item.quote_line_id}><td>{item.description ?? "—"}</td><td>{item.machine_id ?? "—"}</td><td>{formatCurrency(item.price, order.currency ?? "EUR")}</td></tr>)}</tbody></table></div>}
+        </article>
+      </section>
+    </>}
+  </RecordsLayout>;
+}
+
+function ProfilePage() {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const { notify } = useNotifications();
+
+  useEffect(() => {
+    apiGet<UserProfile>("/profile")
+      .then(setProfile)
+      .catch((loadError: unknown) => {
+        const message = readableError(loadError, "Unable to load your profile.");
+        setError(message);
+        notify(message, "error");
+      })
+      .finally(() => setLoading(false));
+  }, [notify]);
+
+  return <RecordsLayout eyebrow="PROFILE" title={profile ? `${profile.first_name} ${profile.last_name}` : "Your profile"} intro="Your account, permission scope and company information." loading={loading} error={error} empty={!loading && !error && !profile ? "Profile not found." : undefined}>
+    {profile && <section className="operational-grid" aria-label="Profile details">
+      <article className="data-panel"><h3>Account</h3><p><strong>{profile.job_title}</strong><br />{profile.email}<br />User ID: {profile.user_id}</p></article>
+      <article className="data-panel"><h3>Access scope</h3><p><strong>{profile.visibility}</strong><br />Company ID: {profile.company_id}</p></article>
+      <article className="data-panel data-panel-wide"><h3>Company</h3><p><strong>{profile.company_name}</strong><br />{profile.city}, {profile.country} · {profile.sector}<br />Currency: {profile.currency} · Locale: {profile.locale}</p></article>
+    </section>}
   </RecordsLayout>;
 }
 
@@ -579,6 +791,7 @@ function QuotesPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const { notify } = useNotifications();
+  const navigate = useNavigate();
 
   useEffect(() => {
     apiGet<QuoteRecord[]>("/quotes")
@@ -592,9 +805,55 @@ function QuotesPage() {
   }, [notify]);
 
   return <RecordsLayout eyebrow="QUOTES" title="Quotes" intro="Review quote revisions, validity, discounts and totals." loading={loading} error={error} empty={quotes.length === 0 ? "No quotes available." : undefined}>
-    <div className="records-table-wrap"><table className="records-table"><thead><tr><th>Quote</th><th>Revision</th><th>Status</th><th>Valid until</th><th>Validity</th><th>Discount</th><th>Total</th></tr></thead><tbody>
-      {quotes.map((quote) => <tr key={quote.quote_id}><td>{quote.quote_id}</td><td>{quote.revision_number ?? "—"}</td><td>{quote.revision_status ?? "—"}</td><td>{quote.valid_until ? formatDateTime(quote.valid_until) : "—"}</td><td>{quote.validity_status}</td><td>{quote.discount_rate === null ? "—" : `${(quote.discount_rate * 100).toLocaleString("en-GB")}%`}</td><td>{formatCurrency(quote.line_total)}</td></tr>)}
+    <div className="records-table-wrap"><table className="records-table"><thead><tr><th>Quote</th><th>Revision</th><th>Status</th><th>Valid until</th><th>Validity</th><th>Discount</th><th>Total</th><th></th></tr></thead><tbody>
+      {quotes.map((quote) => <tr key={quote.quote_id}><td>{quote.quote_id}</td><td>{quote.revision_number ?? "—"}</td><td>{quote.revision_status ?? "—"}</td><td>{quote.valid_until ? formatDateTime(quote.valid_until) : "—"}</td><td>{quote.validity_status}</td><td>{quote.discount_rate === null ? "—" : `${(quote.discount_rate * 100).toLocaleString("en-GB")}%`}</td><td>{formatCurrency(quote.line_total)}</td><td><button type="button" className="records-link" onClick={() => navigate(`/quotes/${encodeURIComponent(quote.quote_id)}`)}>History</button></td></tr>)}
     </tbody></table></div>
+  </RecordsLayout>;
+}
+
+function QuoteHistoryPage() {
+  const { quoteId } = useParams();
+  const navigate = useNavigate();
+  const { notify } = useNotifications();
+  const [history, setHistory] = useState<QuoteHistory | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!quoteId) return;
+    apiGet<QuoteHistory>(`/quotes/${encodeURIComponent(quoteId)}`)
+      .then(setHistory)
+      .catch((loadError: unknown) => {
+        const message = readableError(loadError, "Unable to load quote history.");
+        setError(message);
+        notify(message, "error");
+      })
+      .finally(() => setLoading(false));
+  }, [quoteId, notify]);
+
+  return <RecordsLayout eyebrow="QUOTE HISTORY" title={history?.quote_id ?? "Quote history"} intro={history?.description ?? "Review revisions, quoted lines and changes."} loading={loading} error={error} empty={!loading && !error && !history ? "Quote not found." : undefined}>
+    {history && <>
+      <button className="back-link" type="button" onClick={() => navigate("/quotes")}>← All quotes</button>
+      <p className="page-intro">Created {history.created_at ? formatDateTime(history.created_at) : "—"} · valid until {history.valid_until ? formatDateTime(history.valid_until) : "—"} · {history.validity_status}</p>
+      <section className="operational-grid" aria-label="Latest revision comparison">
+        <article className="data-panel data-panel-wide">
+          <h3>Latest revision changes</h3>
+          {history.latest_comparison.length === 0 ? <p className="data-empty">No changed lines compared with the preceding revision.</p> : <div className="data-table-wrap"><table><thead><tr><th>Change</th><th>Description</th><th>Machine</th><th>Previous price</th><th>Current price</th></tr></thead><tbody>
+            {history.latest_comparison.map((change, index) => <tr key={`${change.change}-${change.description}-${index}`}><td>{change.change.replace("_", " ")}</td><td>{change.description ?? "—"}</td><td>{change.machine_id ?? "—"}</td><td>{change.previous_price === null ? "—" : formatCurrency(change.previous_price, history.currency ?? "EUR")}</td><td>{change.current_price === null ? "—" : formatCurrency(change.current_price, history.currency ?? "EUR")}</td></tr>)}
+          </tbody></table></div>}
+        </article>
+      </section>
+      <section className="operational-grid" aria-label="Quote revisions">
+        {history.revisions.map((revision) => <article className="data-panel data-panel-wide" key={revision.quote_revision_id}>
+          <h3>Revision {revision.revision_number} · {revision.revision_status}</h3>
+          <p>{revision.issued_at ? formatDateTime(revision.issued_at) : "Date unavailable"} · Discount {revision.discount_rate === null ? "—" : `${(revision.discount_rate * 100).toLocaleString("en-GB")}%`} · Total {formatCurrency(revision.line_total, history.currency ?? "EUR")}</p>
+          {revision.change_summary && <p>{revision.change_summary}</p>}
+          <div className="data-table-wrap"><table><thead><tr><th>Description</th><th>Machine</th><th>Net price</th></tr></thead><tbody>
+            {revision.lines.map((line) => <tr key={line.quote_line_id}><td>{line.description ?? "—"}</td><td>{line.machine_id ?? "—"}</td><td>{formatCurrency(line.price, history.currency ?? "EUR")}</td></tr>)}
+          </tbody></table></div>
+        </article>)}
+      </section>
+    </>}
   </RecordsLayout>;
 }
 
@@ -936,8 +1195,8 @@ function OperationalData({ machineId }: { machineId: string }) {
           <article className="data-panel">
             <h3>Recent telemetry</h3>
             {telemetry.length === 0 ? <p className="data-empty">No telemetry available.</p> : (
-              <div className="data-table-wrap"><table><thead><tr><th>Date</th><th>Status</th><th>Production</th><th>Uptime</th><th>Temp.</th></tr></thead><tbody>
-                {telemetry.map((entry) => <tr key={entry.timestamp}><td>{formatDateTime(entry.timestamp)}</td><td>{entry.operational_status}</td><td>{entry.production_rate_bph.toLocaleString("en-GB")} bph</td><td>{entry.uptime_percentage}%</td><td>{entry.temperature_c ?? "—"}{entry.temperature_c !== null ? " °C" : ""}</td></tr>)}
+              <div className="data-table-wrap"><table><thead><tr><th>Date</th><th>Status</th><th>Production</th><th>Reference</th><th>Uptime</th><th>Temp.</th></tr></thead><tbody>
+                {telemetry.map((entry) => <tr key={entry.timestamp}><td>{formatDateTime(entry.timestamp)}</td><td>{entry.operational_status}</td><td>{entry.production_rate_bph.toLocaleString("en-GB")} bph</td><td title={entry.production_assessment?.reason}>{productionReference(entry)}</td><td>{entry.uptime_percentage}%</td><td>{entry.temperature_c ?? "—"}{entry.temperature_c !== null ? " °C" : ""}</td></tr>)}
               </tbody></table></div>
             )}
           </article>
@@ -1129,6 +1388,18 @@ function MachinePage() {
                 <span>Model</span>
                 <strong>{machine.model_description ?? machine.model_code}</strong>
               </article>
+              <article>
+                <span>Delivered</span>
+                <strong>{machine.delivery_date ? formatDateTime(machine.delivery_date) : "Not available"}</strong>
+              </article>
+              <article>
+                <span>PLC family</span>
+                <strong>{machine.plc_family ?? "Not available"}</strong>
+              </article>
+              <article>
+                <span>Software version</span>
+                <strong>{machine.software_version ?? "Not available"}</strong>
+              </article>
             </section>
             <section className="configuration-card">
               <p className="eyebrow dark-eyebrow">CONFIGURATION</p>
@@ -1170,8 +1441,11 @@ export default function App() {
         <Route path="/machines/:qrValue" element={<MachineRoute />} />
         <Route path="/home" element={<RequireSession><HomePage /></RequireSession>} />
         <Route path="/orders" element={<RequireSession><OrdersPage /></RequireSession>} />
+        <Route path="/orders/:orderId" element={<RequireSession><OrderDetailPage /></RequireSession>} />
+        <Route path="/quotes/:quoteId" element={<RequireSession><QuoteHistoryPage /></RequireSession>} />
         <Route path="/quotes" element={<RequireSession><QuotesPage /></RequireSession>} />
         <Route path="/service" element={<RequireSession><ServicePage /></RequireSession>} />
+        <Route path="/profile" element={<RequireSession><ProfilePage /></RequireSession>} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </NotificationProvider>

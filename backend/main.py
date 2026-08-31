@@ -18,11 +18,20 @@ from core.auth import (
 )
 from core.config import get_settings
 from core.db import check_connection, connection
-from core.data_access import MachineNotFoundError, get_company_machines
+from core.data_access import (
+    MachineNotFoundError,
+    OrderNotFoundError,
+    QuoteNotFoundError,
+    get_company_order_detail,
+    get_company_machines,
+    get_company_quote_history,
+    get_user_profile,
+)
 from core.llm import LlmNotConfiguredError, LlmRequestError, generate_chat_reply
 from core.orchestrator import MissingMachineContextError, handle_chat
 from agents.iot import recent_alarms, telemetry
-from agents.service import maintenance_tickets
+from agents.alarms import explain as explain_alarm
+from agents.service import maintenance_tickets, observed_maintenance_plan
 from agents.troubleshoot import investigate
 from agents.orders import orders, quotes
 from agents.manuals import ManualsUnavailableError, can_open_file, search as search_manual
@@ -66,6 +75,10 @@ class MachineContext(BaseModel):
     model_code: str
     model_description: str | None = None
     plant_location: str | None = None
+    delivery_date: str | None = None
+    plc_family: str | None = None
+    software_version: str | None = None
+    configuration_profile: str | None = None
     operational_context: str
 
 
@@ -82,6 +95,19 @@ class SessionUser(BaseModel):
     user_id: str
     company_id: str
     visibility: str
+
+
+class UserProfile(SessionUser):
+    first_name: str
+    last_name: str
+    email: str
+    job_title: str
+    company_name: str
+    country: str
+    city: str
+    sector: str
+    currency: str
+    locale: str
 
 
 class LoginRequest(BaseModel):
@@ -112,6 +138,21 @@ class TelemetryRecord(BaseModel):
     temperature_c: float | None = None
     energy_kwh: float | None = None
     health_note: str | None = None
+    production_assessment: "ProductionAssessment | None" = None
+
+
+class ProductionAssessment(BaseModel):
+    """Machine-specific production reference attached to a telemetry snapshot."""
+
+    nominal_production_rate_bph: float | None = None
+    production_vs_nominal_percent: float | None = None
+    status: Literal[
+        "within_expected_range",
+        "below_nominal_reference",
+        "above_nominal_reference",
+        "not_assessed",
+    ]
+    reason: str
 
 
 class MaintenanceTicketRecord(BaseModel):
@@ -124,11 +165,50 @@ class MaintenanceTicketRecord(BaseModel):
     owner_role: str
 
 
+class MaintenanceObservation(BaseModel):
+    """Maintenance thresholds compared with the available telemetry window."""
+
+    machine_id: str
+    observed_productive_hours: float
+    first_snapshot: str | None = None
+    last_snapshot: str | None = None
+    snapshot_count: int
+    documented_threshold_hours: list[int]
+    reached_threshold_hours: list[int]
+    next_threshold_hours: int | None = None
+    scope_note: str
+
+
 class OrderRecord(BaseModel):
     order_id: str
     quote_id: str
     order_status: str
     shipment_status: str
+
+
+class OrderItem(BaseModel):
+    quote_line_id: str
+    machine_id: str | None = None
+    description: str | None = None
+    price: float
+
+
+class FulfillmentLine(BaseModel):
+    order_line_id: str
+    fulfillment_status: str
+
+
+class ApprovedOrderRevision(BaseModel):
+    revision_number: int
+    revision_status: str
+    discount_rate: float | None = None
+
+
+class OrderDetail(OrderRecord):
+    currency: str | None = None
+    approved_revision: ApprovedOrderRevision | None = None
+    items: list[OrderItem]
+    fulfillment: list[FulfillmentLine]
 
 
 class QuoteRecord(BaseModel):
@@ -139,6 +219,43 @@ class QuoteRecord(BaseModel):
     revision_status: str | None = None
     discount_rate: float | None = None
     line_total: float
+
+
+class QuoteLineDetail(BaseModel):
+    quote_line_id: str
+    machine_id: str | None = None
+    description: str | None = None
+    price: float
+
+
+class QuoteRevisionDetail(BaseModel):
+    quote_revision_id: str
+    revision_number: int
+    revision_status: str
+    discount_rate: float | None = None
+    issued_at: str | None = None
+    change_summary: str | None = None
+    line_total: float
+    lines: list[QuoteLineDetail]
+
+
+class QuoteLineChange(BaseModel):
+    change: Literal["added", "removed", "price_changed"]
+    machine_id: str | None = None
+    description: str | None = None
+    previous_price: float | None = None
+    current_price: float | None = None
+
+
+class QuoteHistory(BaseModel):
+    quote_id: str
+    valid_until: str | None = None
+    validity_status: Literal["Valid", "Expired", "Unknown"]
+    currency: str | None = None
+    created_at: str | None = None
+    description: str | None = None
+    revisions: list[QuoteRevisionDetail]
+    latest_comparison: list[QuoteLineChange]
 
 
 class ManualCitation(BaseModel):
@@ -155,6 +272,14 @@ class ManualSearchResult(BaseModel):
     highlights: list[str]
     relevance: float
     similarity: float
+
+
+class AlarmGuidance(BaseModel):
+    machine_id: str
+    alarm_code: str
+    meaning: str
+    recent_events: list[AlarmRecord]
+    manual_evidence: list[ManualSearchResult]
 
 
 class TroubleshootReport(BaseModel):
@@ -233,6 +358,14 @@ async def current_session(user: AuthContext = Depends(get_current_user)) -> Sess
     )
 
 
+@app.get("/profile", response_model=UserProfile)
+async def profile(user: AuthContext = Depends(get_current_user)) -> UserProfile:
+    """Return the signed-in user's own account and company information."""
+
+    details = await get_user_profile(user)
+    return UserProfile(**details)
+
+
 @app.get("/machines", response_model=list[MachineSummary])
 async def company_machines(
     user: AuthContext = Depends(get_current_user),
@@ -270,8 +403,10 @@ async def lookup_machine_from_qr(
             m.model_id,
             mm.model_code,
             mm.description AS model_description,
+            m.delivery_date,
             m.plant_location,
             COALESCE(m.configuration_profile, '') AS configuration_profile,
+            m.plc_family,
             COALESCE(m.software_version, '') AS software_version
         FROM machines AS m
         JOIN companies AS c ON c.company_id = m.company_id
@@ -308,8 +443,10 @@ async def lookup_machine_from_qr(
         model_id,
         model_code,
         model_description,
+        delivery_date,
         plant_location,
         configuration_profile,
+        plc_family,
         software_version,
     ) = row
     return MachineContext(
@@ -320,7 +457,11 @@ async def lookup_machine_from_qr(
         model_id=model_id,
         model_code=model_code,
         model_description=model_description,
+        delivery_date=delivery_date.isoformat() if delivery_date else None,
         plant_location=plant_location,
+        plc_family=plc_family,
+        software_version=software_version or None,
+        configuration_profile=configuration_profile or None,
         operational_context=(
             f"Machine {machine_id} (serial {serial_number}); "
             f"configuration: {configuration_profile or 'n/a'}; "
@@ -345,6 +486,51 @@ async def machine_alarms(
             detail="Machine not found.",
         ) from error
     return [AlarmRecord(timestamp=row["timestamp"].isoformat(), **{key: value for key, value in row.items() if key != "timestamp"}) for row in rows]
+
+
+@app.get(
+    "/machines/{machine_id}/alarms/{alarm_code}/guidance",
+    response_model=AlarmGuidance,
+)
+async def machine_alarm_guidance(
+    machine_id: str,
+    alarm_code: str,
+    user: AuthContext = Depends(get_current_user),
+    limit: int = Query(default=5, ge=1, le=10),
+) -> AlarmGuidance:
+    """Explain one dataset alarm code with cited machine-manual guidance."""
+
+    try:
+        report = await explain_alarm(machine_id.strip(), alarm_code, user, limit)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+    except MachineNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Machine not found.",
+        ) from error
+    except ManualsUnavailableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Manual search is temporarily unavailable.",
+        ) from error
+
+    return AlarmGuidance(
+        machine_id=report["machine_id"],
+        alarm_code=report["alarm_code"],
+        meaning=report["meaning"],
+        recent_events=[
+            AlarmRecord(
+                timestamp=row["timestamp"].isoformat(),
+                **{key: value for key, value in row.items() if key != "timestamp"},
+            )
+            for row in report["recent_events"]
+        ],
+        manual_evidence=[manual_search_result(row) for row in report["manual_evidence"]],
+    )
 
 
 @app.get("/machines/{machine_id}/telemetry", response_model=list[TelemetryRecord])
@@ -390,6 +576,34 @@ async def machine_maintenance_tickets(
         )
         for row in rows
     ]
+
+
+@app.get(
+    "/machines/{machine_id}/maintenance-observation",
+    response_model=MaintenanceObservation,
+)
+async def machine_maintenance_observation(
+    machine_id: str,
+    user: AuthContext = Depends(get_current_user),
+) -> MaintenanceObservation:
+    """Compare documented maintenance thresholds with observed productive hours."""
+
+    try:
+        report = await observed_maintenance_plan(machine_id.strip(), user)
+    except MachineNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Machine not found.",
+        ) from error
+    return MaintenanceObservation(
+        first_snapshot=report["first_snapshot"].isoformat() if report["first_snapshot"] else None,
+        last_snapshot=report["last_snapshot"].isoformat() if report["last_snapshot"] else None,
+        **{
+            key: value
+            for key, value in report.items()
+            if key not in {"first_snapshot", "last_snapshot"}
+        },
+    )
 
 
 @app.get(
@@ -522,6 +736,28 @@ async def company_orders(
     return [OrderRecord(**row) for row in rows]
 
 
+@app.get("/orders/{order_id}", response_model=OrderDetail)
+async def company_order_detail(order_id: str, user: AuthContext = Depends(get_current_user)) -> OrderDetail:
+    """Return the approved quote content and fulfilment status of one order."""
+
+    ensure_visibility(user, "commercial")
+    try:
+        detail = await get_company_order_detail(user.company_id, order_id.strip())
+    except OrderNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.") from error
+    revision = detail["approved_revision"]
+    return OrderDetail(
+        order_id=detail["order_id"], quote_id=detail["quote_id"], order_status=detail["order_status"],
+        shipment_status=detail["shipment_status"], currency=detail["currency"],
+        approved_revision=None if revision is None else ApprovedOrderRevision(
+            revision_number=revision["revision_number"], revision_status=revision["revision_status"],
+            discount_rate=float(revision["discount_rate"]) if revision["discount_rate"] is not None else None,
+        ),
+        items=[OrderItem(price=float(item["price"]), **{key: value for key, value in item.items() if key != "price"}) for item in detail["items"]],
+        fulfillment=[FulfillmentLine(**line) for line in detail["fulfillment"]],
+    )
+
+
 @app.get("/quotes", response_model=list[QuoteRecord])
 async def company_quotes(
     user: AuthContext = Depends(get_current_user),
@@ -544,6 +780,56 @@ async def company_quotes(
         )
         for row in rows
     ]
+
+
+@app.get("/quotes/{quote_id}", response_model=QuoteHistory)
+async def company_quote_history(
+    quote_id: str,
+    user: AuthContext = Depends(get_current_user),
+) -> QuoteHistory:
+    """Return all authorised revisions, lines, and latest revision changes."""
+
+    ensure_visibility(user, "commercial")
+    try:
+        history = await get_company_quote_history(user.company_id, quote_id.strip())
+    except QuoteNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Quote not found.",
+        ) from error
+
+    return QuoteHistory(
+        valid_until=history["valid_until"].isoformat() if history["valid_until"] else None,
+        validity_status=history["validity_status"],
+        currency=history["currency"],
+        created_at=history["created_at"],
+        description=history["description"],
+        quote_id=history["quote_id"],
+        revisions=[
+            QuoteRevisionDetail(
+                discount_rate=float(revision["discount_rate"]) if revision["discount_rate"] is not None else None,
+                line_total=float(revision["line_total"]),
+                lines=[
+                    QuoteLineDetail(price=float(line["price"]), **{key: value for key, value in line.items() if key != "price"})
+                    for line in revision["lines"]
+                ],
+                **{
+                    key: value
+                    for key, value in revision.items()
+                    if key not in {"discount_rate", "line_total", "lines"}
+                },
+            )
+            for revision in history["revisions"]
+        ],
+        latest_comparison=[
+            QuoteLineChange(
+                previous_price=float(change["previous_price"]) if change["previous_price"] is not None else None,
+                current_price=float(change["current_price"]) if change["current_price"] is not None else None,
+                **{key: value for key, value in change.items() if key not in {"previous_price", "current_price"}},
+            )
+            for change in history["latest_comparison"]
+        ],
+    )
 
 
 @app.post("/chat", response_model=ChatResponse)

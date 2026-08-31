@@ -42,6 +42,9 @@ async function mockApi(page: Page, unavailableMachines = false) {
     if (url.pathname.endsWith("/maintenance-tickets")) {
       return json([{ ticket_id: "TCK-001", alarm_id: "ALM-001", ticket_type: "Corrective", ticket_status: "Open", priority: "High", created_date: "2026-08-05T09:00:00Z", owner_role: "Service" }]);
     }
+    if (url.pathname.endsWith("/maintenance-observation")) {
+      return json({ machine_id: "MCH-0001", observed_productive_hours: 42.5, first_snapshot: "2026-08-05T00:00:00Z", last_snapshot: "2026-08-05T23:00:00Z", snapshot_count: 24, documented_threshold_hours: [40, 500], reached_threshold_hours: [40], next_threshold_hours: 500, scope_note: "Observed window only." });
+    }
     if (url.pathname.endsWith("/manuals/search")) {
       return json([manualResult]);
     }

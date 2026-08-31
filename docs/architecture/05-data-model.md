@@ -131,7 +131,7 @@ The following rules belong in the data-access layer, not in LLM prompts:
 - Quote expiry is evaluated against the fixed business date `2026-08-05`;
   a quote is expired only when `validUntil` is earlier than that date.
 - A zero production rate or uptime value can mean that a machine is not producing; it is not automatically a fault.
-- Telemetry must be interpreted against the physical machine's `configurationProfile`, not only against the shared machine model.
+- Telemetry production is interpreted against the physical machine's `configurationProfile`, not only against the shared machine model. When the machine is `Running`, the API compares the rate with the nominal `bph` extracted from that profile using a ±10% reference band. A zero rate outside `Running` is reported as not assessed, not as a fault.
 
 ## Important edge cases
 

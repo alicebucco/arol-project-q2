@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents.iot import recent_alarms, telemetry
+from agents.alarms import alarm_meaning, explain as explain_alarm
 from agents.manuals import ManualsUnavailableError, search as search_manual
 from agents.orders import orders, quotes
-from agents.service import maintenance_tickets
+from agents.service import maintenance_tickets, observed_maintenance_plan
 from agents.troubleshoot import investigate
 from core.auth import AuthContext
 from core.business_time import BUSINESS_TODAY
@@ -29,12 +30,25 @@ class OrchestrationResult:
 
 
 MACHINE_PATTERN = re.compile(r"\bMCH-[A-Z0-9-]+\b", re.IGNORECASE)
+ALARM_CODE_PATTERN = re.compile(r"\bAL\d{3}_[A-Z0-9_]+\b", re.IGNORECASE)
 
 
 def classify_intent(message: str) -> str:
     """Route English and Italian questions before invoking the LLM."""
 
     text = message.casefold()
+    if ALARM_CODE_PATTERN.search(message):
+        return "alarm_guidance"
+    maintenance_due_terms = (
+        "maintenance due", "due maintenance", "overdue maintenance", "next maintenance",
+        "maintenance threshold", "operating hours", "working hours", "ore di lavoro",
+        "ore operative", "manutenzione dovuta", "manutenzione scaduta", "soglia manutenzione",
+        "prossima manutenzione", "quando è prevista", "due", "dovuta", "scaduta", "scadenza",
+    )
+    if any(term in text for term in ("maintenance", "manutenzione")) and any(
+        term in text for term in maintenance_due_terms
+    ):
+        return "maintenance_due"
     maintenance_manual_terms = (
         "periodic", "interval", "procedure", "required", "requirement", "due",
         "scheduled maintenance", "how to maintain", "maintenance schedule",
@@ -103,9 +117,17 @@ async def _evidence(intent: str, message: str, machine_id: str | None, user: Aut
     if intent == "iot":
         target = _require_machine(message, machine_id)
         return {"machine_id": target, "alarms": await recent_alarms(target, user, 5), "telemetry": await telemetry(target, user, 5)}
+    if intent == "alarm_guidance":
+        target = _require_machine(message, machine_id)
+        code = ALARM_CODE_PATTERN.search(message)
+        assert code is not None
+        return await explain_alarm(target, code.group(0), user, 5)
     if intent == "service":
         target = _require_machine(message, machine_id)
         return {"machine_id": target, "maintenance_tickets": await maintenance_tickets(target, user, 10)}
+    if intent == "maintenance_due":
+        target = _require_machine(message, machine_id)
+        return {"maintenance_observation": await observed_maintenance_plan(target, user)}
     if intent == "manuals":
         target = _require_machine(message, machine_id)
         return {"machine_id": target, "manual_evidence": await search_manual(target, message, user, 5)}
@@ -140,14 +162,31 @@ def _local_troubleshoot_answer(evidence: dict[str, Any]) -> str:
     """Return diagnostic evidence locally, never exposing manual text to the LLM."""
 
     alarms = evidence["alarms"]
+    patterns = evidence.get("repeated_alarm_patterns", [])
     tickets = evidence["maintenance_tickets"]
-    alarm_summary = (
+    top_patterns = patterns[:3]
+    pattern_summary = (
         "; ".join(
-            f"{alarm['alarm_code']} ({alarm['severity']}, {alarm['alarm_status']})"
-            for alarm in alarms
+            f"{alarm_meaning(pattern['alarm_code'])} ({pattern['alarm_code']}, "
+            f"{pattern['occurrences']} occurrences, latest status: {pattern['latest_status']})"
+            for pattern in top_patterns
         )
-        if alarms
-        else "no recent alarms"
+        if top_patterns
+        else "No alarm code has occurred more than once in the available alarm history."
+    )
+    cap_related = [pattern for pattern in patterns if "CAPS" in pattern["alarm_code"]]
+    pattern_interpretation = (
+        "Most recurring conditions concern cap feeding or cap checking. This points to a repeated issue in that area, "
+        "but the recorded alarms alone cannot confirm its root cause."
+        if len(cap_related) > len(patterns) / 2
+        else "The recorded alarms do not point to one dominant subsystem, so the data alone cannot confirm a root cause."
+    )
+    latest_snapshot = evidence["telemetry"][0] if evidence["telemetry"] else None
+    telemetry_summary = (
+        f"The latest telemetry snapshot is {latest_snapshot['operational_status']} "
+        f"at {latest_snapshot['timestamp'].isoformat()}, with {latest_snapshot['alarm_count']} alarm(s) in that hour."
+        if latest_snapshot
+        else "No recent telemetry snapshots are available."
     )
     ticket_summary = (
         "; ".join(
@@ -161,9 +200,54 @@ def _local_troubleshoot_answer(evidence: dict[str, Any]) -> str:
         {"manual_evidence": evidence["manual_evidence"]}
     )
     return (
-        f"Evidence collected for {evidence['machine_id']}: {alarm_summary}. "
-        f"Maintenance tickets: {ticket_summary}.\n\n"
+        f"Repeated alarm analysis for {evidence['machine_id']}: {len(patterns)} recurring condition(s) found. "
+        f"Most frequent: {pattern_summary}.\n{pattern_interpretation}\n"
+        f"{telemetry_summary} Maintenance tickets: {ticket_summary}.\n\n"
+        "This identifies recurring conditions from the recorded data; the manual sources below provide the machine-specific checks and remedies, not a confirmed root cause.\n\n"
         f"{manual_answer}"
+    )
+
+
+def _local_alarm_guidance_answer(evidence: dict[str, Any]) -> str:
+    """Explain the mnemonic and point to local manual evidence without an LLM."""
+
+    events = evidence["recent_events"]
+    event_summary = (
+        "; ".join(
+            f"{event['severity']} / {event['alarm_status']} ({event['timestamp'].isoformat()})"
+            for event in events
+        )
+        if events
+        else "Operational event history is unavailable for your role, or no matching events were found."
+    )
+    manual_answer = _local_manual_answer({"manual_evidence": evidence["manual_evidence"]})
+    return (
+        f"{evidence['alarm_code']} means: {evidence['meaning']}. "
+        f"Recent events: {event_summary}\n\n{manual_answer}"
+    )
+
+
+def _local_maintenance_due_answer(evidence: dict[str, Any]) -> str:
+    """Report documented thresholds against the actual telemetry coverage only."""
+
+    observation = evidence["maintenance_observation"]
+    reached = observation["reached_threshold_hours"]
+    reached_text = ", ".join(f"{threshold} h" for threshold in reached) if reached else "none"
+    next_threshold = observation["next_threshold_hours"]
+    next_text = f"{next_threshold} h" if next_threshold is not None else "none documented"
+    first_snapshot = observation["first_snapshot"]
+    last_snapshot = observation["last_snapshot"]
+    period = (
+        f"{first_snapshot.isoformat()} to {last_snapshot.isoformat()}"
+        if first_snapshot is not None and last_snapshot is not None
+        else "the available telemetry window"
+    )
+    return (
+        f"For {observation['machine_id']}, telemetry from {period} contains "
+        f"{observation['observed_productive_hours']} observed productive hours. "
+        f"Documented thresholds reached in this window: {reached_text}. "
+        f"Next documented threshold: {next_text}.\n\n"
+        f"{observation['scope_note']}"
     )
 
 
@@ -196,9 +280,26 @@ async def handle_chat(
             structured_data={
                 "machine_id": evidence["machine_id"],
                 "alarms": evidence["alarms"],
+                "alarm_patterns": evidence.get("repeated_alarm_patterns", []),
                 "telemetry": evidence["telemetry"],
                 "maintenance_tickets": evidence["maintenance_tickets"],
             },
+        )
+    if intent == "alarm_guidance":
+        return OrchestrationResult(
+            "alarm_guidance",
+            _local_alarm_guidance_answer(evidence),
+            manual_evidence=evidence["manual_evidence"],
+            structured_data={
+                "machine_id": evidence["machine_id"],
+                "alarms": evidence["recent_events"],
+            },
+        )
+    if intent == "maintenance_due":
+        return OrchestrationResult(
+            "maintenance_due",
+            _local_maintenance_due_answer(evidence),
+            structured_data={"maintenance_observation": evidence["maintenance_observation"]},
         )
 
     prompt = (

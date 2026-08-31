@@ -94,6 +94,8 @@ code { padding: 0.1rem 0.3rem; border-radius: 0; color: #000032; background: #f5
 .records-table td { padding: 1rem 1.1rem; border-top: 1px solid #e3e6e4; vertical-align: top; }
 .records-table td:first-child { font-weight: 700; }
 .records-table td small { display: block; margin-top: 0.2rem; color: #555; font-size: 0.7rem; font-weight: 400; }
+.records-link { padding: 0; border: 0; cursor: pointer; color: #000032; background: transparent; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 0.25rem; }
+.records-link:hover { color: #2655c7; }
 .status-message { margin: 2rem 0; color: #555; line-height: 1.6; }
 .error-message { padding: 1rem 1.1rem; border-left: 3px solid #b42318; color: #8f1a12; background: #fff; }
 .machine-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1px; border: 1px solid #cdd4d0; background: #cdd4d0; }
