@@ -3,9 +3,17 @@
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime, time, timezone
 from typing import Any
 
-from agents.iot import recent_alarms, telemetry
+from agents.iot import (
+    alarm_summary,
+    compare_telemetry_periods,
+    count_alarms,
+    recent_alarms,
+    telemetry,
+    telemetry_summary,
+)
 from agents.alarms import alarm_meaning, explain as explain_alarm
 from agents.manuals import ManualsUnavailableError, search as search_manual
 from agents.orders import orders, quotes
@@ -37,6 +45,10 @@ def classify_intent(message: str) -> str:
     """Route English and Italian questions before invoking the LLM."""
 
     text = message.casefold()
+    if ALARM_CODE_PATTERN.search(message) and any(
+        term in text for term in ("how many", "number of", "count", "quante", "quanti", "conteggio")
+    ):
+        return "iot"
     if ALARM_CODE_PATTERN.search(message):
         return "alarm_guidance"
     maintenance_due_terms = (
@@ -97,6 +109,69 @@ def classify_intent(message: str) -> str:
     return "general"
 
 
+def _iso_periods(message: str) -> list[tuple[datetime, datetime]]:
+    """Extract pairs of inclusive ISO dates for the current deterministic router."""
+
+    values = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", message)
+    periods: list[tuple[datetime, datetime]] = []
+    for index in range(0, len(values) - 1, 2):
+        start_date = datetime.fromisoformat(values[index]).date()
+        end_date = datetime.fromisoformat(values[index + 1]).date()
+        periods.append(
+            (
+                datetime.combine(start_date, time.min, tzinfo=timezone.utc),
+                datetime.combine(end_date, time.max, tzinfo=timezone.utc),
+            )
+        )
+    return periods
+
+
+async def _iot_evidence(message: str, machine_id: str, user: AuthContext) -> dict[str, Any]:
+    """Choose a bounded database operation instead of always loading five rows."""
+
+    text = message.casefold()
+    periods = _iso_periods(message)
+    start_time, end_time = periods[0] if periods else (None, None)
+    code_match = ALARM_CODE_PATTERN.search(message)
+    alarm_code = code_match.group(0).upper() if code_match else None
+    count_terms = ("how many", "number of", "count", "quante", "quanti", "conteggio")
+    summary_terms = ("most frequent", "recurring", "repeated", "group", "frequency", "più frequ", "ricorrent")
+    telemetry_terms = ("telemetr", "temperature", "energy", "uptime", "production", "temperatura", "energia", "produzion")
+    statistic_terms = ("average", "mean", "minimum", "maximum", "total", "trend", "media", "minim", "massim", "totale", "andamento")
+
+    if alarm_code and any(term in text for term in count_terms):
+        return {"operation": "count_alarms", "result": await count_alarms(
+            machine_id, user, start_time=start_time, end_time=end_time,
+            alarm_code=alarm_code,
+        )}
+    if "alarm" in text or "allarm" in text:
+        if any(term in text for term in summary_terms):
+            return {"operation": "alarm_summary", "result": await alarm_summary(
+                machine_id, user, start_time=start_time, end_time=end_time,
+                alarm_code=alarm_code,
+            )}
+        return {"operation": "recent_alarms", "machine_id": machine_id, "alarms": await recent_alarms(
+            machine_id, user, 20, start_time=start_time, end_time=end_time,
+            alarm_code=alarm_code,
+        )}
+    if any(term in text for term in telemetry_terms) and any(term in text for term in statistic_terms):
+        if len(periods) >= 2 and any(term in text for term in ("compare", "comparison", "confront")):
+            return {"operation": "compare_telemetry_periods", "result": await compare_telemetry_periods(
+                machine_id, user,
+                first_start=periods[0][0], first_end=periods[0][1],
+                second_start=periods[1][0], second_end=periods[1][1],
+            )}
+        return {"operation": "telemetry_summary", "result": await telemetry_summary(
+            machine_id, user, start_time=start_time, end_time=end_time,
+        )}
+    return {
+        "operation": "recent_operational_data",
+        "machine_id": machine_id,
+        "alarms": await recent_alarms(machine_id, user, 20, start_time=start_time, end_time=end_time),
+        "telemetry": await telemetry(machine_id, user, 20, start_time=start_time, end_time=end_time),
+    }
+
+
 def _machine_id(message: str, machine_id: str | None) -> str | None:
     if machine_id and machine_id.strip():
         return machine_id.strip()
@@ -116,7 +191,7 @@ def _require_machine(message: str, machine_id: str | None) -> str:
 async def _evidence(intent: str, message: str, machine_id: str | None, user: AuthContext) -> Any:
     if intent == "iot":
         target = _require_machine(message, machine_id)
-        return {"machine_id": target, "alarms": await recent_alarms(target, user, 5), "telemetry": await telemetry(target, user, 5)}
+        return await _iot_evidence(message, target, user)
     if intent == "alarm_guidance":
         target = _require_machine(message, machine_id)
         code = ALARM_CODE_PATTERN.search(message)

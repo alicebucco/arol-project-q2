@@ -1,6 +1,7 @@
 """FastAPI entry point for the AROL Customer Platform backend."""
 
 from pathlib import Path
+from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
@@ -29,7 +30,14 @@ from core.data_access import (
 )
 from core.llm import LlmNotConfiguredError, LlmRequestError, generate_chat_reply
 from core.orchestrator import MissingMachineContextError, handle_chat
-from agents.iot import recent_alarms, telemetry
+from agents.iot import (
+    alarm_summary,
+    compare_telemetry_periods,
+    count_alarms,
+    recent_alarms,
+    telemetry,
+    telemetry_summary,
+)
 from agents.alarms import explain as explain_alarm
 from agents.service import maintenance_tickets, observed_maintenance_plan
 from agents.troubleshoot import investigate
@@ -475,17 +483,76 @@ async def machine_alarms(
     machine_id: str,
     user: AuthContext = Depends(get_current_user),
     limit: int = Query(default=20, ge=1, le=100),
+    start_time: datetime | None = Query(default=None),
+    end_time: datetime | None = Query(default=None),
+    alarm_code: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    alarm_status: str | None = Query(default=None),
 ) -> list[AlarmRecord]:
     """IoT Agent endpoint for recent alarms."""
 
     try:
-        rows = await recent_alarms(machine_id.strip(), user, limit)
+        rows = await recent_alarms(
+            machine_id.strip(), user, limit, start_time=start_time,
+            end_time=end_time, alarm_code=alarm_code, severity=severity,
+            alarm_status=alarm_status,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
     except MachineNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Machine not found.",
         ) from error
     return [AlarmRecord(timestamp=row["timestamp"].isoformat(), **{key: value for key, value in row.items() if key != "timestamp"}) for row in rows]
+
+
+@app.get("/machines/{machine_id}/alarms/count")
+async def machine_alarm_count(
+    machine_id: str,
+    user: AuthContext = Depends(get_current_user),
+    start_time: datetime | None = Query(default=None),
+    end_time: datetime | None = Query(default=None),
+    alarm_code: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    alarm_status: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """Count authorised alarm events using database-side filters."""
+
+    try:
+        return await count_alarms(
+            machine_id.strip(), user, start_time=start_time, end_time=end_time,
+            alarm_code=alarm_code, severity=severity, alarm_status=alarm_status,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+    except MachineNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found.") from error
+
+
+@app.get("/machines/{machine_id}/alarms/summary")
+async def machine_alarm_summary(
+    machine_id: str,
+    user: AuthContext = Depends(get_current_user),
+    limit: int = Query(default=20, ge=1, le=100),
+    start_time: datetime | None = Query(default=None),
+    end_time: datetime | None = Query(default=None),
+    alarm_code: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    alarm_status: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """Group authorised alarm events by code."""
+
+    try:
+        return await alarm_summary(
+            machine_id.strip(), user, limit, start_time=start_time,
+            end_time=end_time, alarm_code=alarm_code, severity=severity,
+            alarm_status=alarm_status,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+    except MachineNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found.") from error
 
 
 @app.get(
@@ -538,17 +605,70 @@ async def machine_telemetry(
     machine_id: str,
     user: AuthContext = Depends(get_current_user),
     limit: int = Query(default=24, ge=1, le=100),
+    start_time: datetime | None = Query(default=None),
+    end_time: datetime | None = Query(default=None),
+    operational_status: str | None = Query(default=None),
 ) -> list[TelemetryRecord]:
     """IoT Agent endpoint for recent telemetry snapshots."""
 
     try:
-        rows = await telemetry(machine_id.strip(), user, limit)
+        rows = await telemetry(
+            machine_id.strip(), user, limit, start_time=start_time,
+            end_time=end_time, operational_status=operational_status,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
     except MachineNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Machine not found.",
         ) from error
     return [TelemetryRecord(timestamp=row["timestamp"].isoformat(), **{key: value for key, value in row.items() if key != "timestamp"}) for row in rows]
+
+
+@app.get("/machines/{machine_id}/telemetry/summary")
+async def machine_telemetry_summary(
+    machine_id: str,
+    user: AuthContext = Depends(get_current_user),
+    start_time: datetime | None = Query(default=None),
+    end_time: datetime | None = Query(default=None),
+    operational_status: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """Return database-side telemetry statistics for one window."""
+
+    try:
+        return await telemetry_summary(
+            machine_id.strip(), user, start_time=start_time, end_time=end_time,
+            operational_status=operational_status,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+    except MachineNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found.") from error
+
+
+@app.get("/machines/{machine_id}/telemetry/compare")
+async def machine_telemetry_comparison(
+    machine_id: str,
+    first_start: datetime,
+    first_end: datetime,
+    second_start: datetime,
+    second_end: datetime,
+    user: AuthContext = Depends(get_current_user),
+    operational_status: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """Compare database-side telemetry summaries for two explicit periods."""
+
+    try:
+        return await compare_telemetry_periods(
+            machine_id.strip(), user, first_start=first_start, first_end=first_end,
+            second_start=second_start, second_end=second_end,
+            operational_status=operational_status,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+    except MachineNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found.") from error
 
 
 @app.get(

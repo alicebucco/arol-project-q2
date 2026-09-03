@@ -13,6 +13,7 @@ from core.auth import AuthContext
     [
         ("Are there any recent alarms?", "iot"),
         ("What does AL017_LOW_AIR_PRESSURE mean?", "alarm_guidance"),
+        ("How many times did AL017_LOW_AIR_PRESSURE occur?", "iot"),
         ("Show the production rate and uptime.", "iot"),
         ("Which maintenance tickets are open?", "service"),
         ("Which maintenance activities are required periodically?", "manuals"),
@@ -109,6 +110,27 @@ def test_data_agent_keeps_structured_evidence_for_the_chat(monkeypatch: pytest.M
 
     assert result.agent == "iot"
     assert result.structured_data == evidence
+
+
+def test_iot_evidence_uses_database_count_for_count_question(monkeypatch: pytest.MonkeyPatch) -> None:
+    count = AsyncMock(return_value={"machine_id": "MCH-0001", "occurrences": 4})
+    recent = AsyncMock()
+    telemetry = AsyncMock()
+    monkeypatch.setattr(orchestrator, "count_alarms", count)
+    monkeypatch.setattr(orchestrator, "recent_alarms", recent)
+    monkeypatch.setattr(orchestrator, "telemetry", telemetry)
+
+    evidence = asyncio.run(orchestrator._iot_evidence(
+        "How many times did AL017_LOW_AIR_PRESSURE occur?",
+        "MCH-0001",
+        AuthContext("USR-001", "CMP-001", "full"),
+    ))
+
+    assert evidence["operation"] == "count_alarms"
+    assert evidence["result"]["occurrences"] == 4
+    count.assert_awaited_once()
+    recent.assert_not_awaited()
+    telemetry.assert_not_awaited()
 
 
 def test_alarm_guidance_never_calls_external_llm(monkeypatch: pytest.MonkeyPatch) -> None:
