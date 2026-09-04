@@ -2,6 +2,8 @@ import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
+import pytest
+
 from agents import iot
 from core.auth import AuthContext
 
@@ -35,7 +37,7 @@ def test_iot_counts_filtered_alarms_without_loading_events(monkeypatch) -> None:
 
     result = asyncio.run(iot.count_alarms(
         "MCH-0001", AuthContext("USR-1", "CMP-1", "full"),
-        start_time=start, end_time=end, alarm_code="AL082_MINIMUM_CAPS_LEVEL",
+        start_time=start, end_time=end, alarm_code=" al082_minimum_caps_level ",
     ))
 
     assert result["occurrences"] == 5
@@ -45,6 +47,24 @@ def test_iot_counts_filtered_alarms_without_loading_events(monkeypatch) -> None:
         "MCH-0001", start_time=start, end_time=end,
         alarm_code="AL082_MINIMUM_CAPS_LEVEL", severity=None, alarm_status=None,
     )
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [iot.recent_alarms, iot.count_alarms, iot.alarm_summary],
+)
+def test_iot_rejects_invalid_alarm_codes_before_authorisation(monkeypatch, operation) -> None:
+    authorize = AsyncMock()
+    monkeypatch.setattr(iot, "authorize_machine", authorize)
+
+    arguments = ["MCH-0001", AuthContext("USR-1", "CMP-1", "full")]
+    if operation is iot.recent_alarms:
+        arguments.append(5)
+
+    with pytest.raises(ValueError, match="ALnnn_MNEMONIC"):
+        asyncio.run(operation(*arguments, alarm_code="LOW_AIR_PRESSURE"))
+
+    authorize.assert_not_awaited()
 
 
 def test_iot_summarizes_alarm_patterns(monkeypatch) -> None:

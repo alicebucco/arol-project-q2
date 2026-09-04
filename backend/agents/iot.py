@@ -1,5 +1,6 @@
 """IoT Agent: operational data access for telemetry and alarms."""
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -18,6 +19,7 @@ from core.machine_configuration import production_assessment
 ALARM_SEVERITIES = {"Critical", "High", "Medium", "Low"}
 ALARM_STATUSES = {"Open", "Acknowledged", "Resolved"}
 OPERATIONAL_STATUSES = {"Running", "Alarm", "Idle", "Stopped", "Maintenance", "Size change"}
+ALARM_CODE_PATTERN = re.compile(r"^AL\d{3}_[A-Z0-9_]+$")
 
 
 def _validate_period(start_time: datetime | None, end_time: datetime | None) -> None:
@@ -36,6 +38,17 @@ def _validate_alarm_filters(severity: str | None, alarm_status: str | None) -> N
         raise ValueError(f"Unsupported alarm severity: {severity}.")
     if alarm_status is not None and alarm_status not in ALARM_STATUSES:
         raise ValueError(f"Unsupported alarm status: {alarm_status}.")
+
+
+def _normalise_alarm_code(alarm_code: str | None) -> str | None:
+    """Normalise and validate an optional dataset alarm-code filter."""
+
+    if alarm_code is None:
+        return None
+    normalized = alarm_code.strip().upper()
+    if not ALARM_CODE_PATTERN.fullmatch(normalized):
+        raise ValueError("An alarm code must have the form ALnnn_MNEMONIC.")
+    return normalized
 
 
 def _validate_operational_status(operational_status: str | None) -> None:
@@ -58,6 +71,7 @@ async def recent_alarms(
 
     _validate_period(start_time, end_time)
     _validate_alarm_filters(severity, alarm_status)
+    alarm_code = _normalise_alarm_code(alarm_code)
     await authorize_machine(machine_id, user, domain="operational")
     return await get_recent_alarms(
         machine_id, limit, start_time=start_time, end_time=end_time,
@@ -79,6 +93,7 @@ async def count_alarms(
 
     _validate_period(start_time, end_time)
     _validate_alarm_filters(severity, alarm_status)
+    alarm_code = _normalise_alarm_code(alarm_code)
     await authorize_machine(machine_id, user, domain="operational")
     count = await count_alarm_events(
         machine_id, start_time=start_time, end_time=end_time,
@@ -110,6 +125,7 @@ async def alarm_summary(
 
     _validate_period(start_time, end_time)
     _validate_alarm_filters(severity, alarm_status)
+    alarm_code = _normalise_alarm_code(alarm_code)
     await authorize_machine(machine_id, user, domain="operational")
     patterns = await summarize_alarm_events(
         machine_id, limit, start_time=start_time, end_time=end_time,
