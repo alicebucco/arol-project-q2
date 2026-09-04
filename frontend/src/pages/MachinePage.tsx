@@ -1,0 +1,17 @@
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { apiGet, readableError } from "../api/client";
+import { AssistantChat } from "../components/chat/AssistantChat";
+import { AppFooter } from "../components/layout/AppFooter";
+import { AppHeader } from "../components/layout/AppHeader";
+import { useNotifications } from "../components/layout/Notifications";
+import { ManualSearch } from "../components/machine/ManualSearch";
+import { OperationalData } from "../components/machine/OperationalData";
+import type { MachineContext } from "../types";
+import { formatDateTime } from "../utils/format";
+
+export function MachinePage() {
+  const { qrValue } = useParams(); const navigate = useNavigate(); const [machine, setMachine] = useState<MachineContext | null>(null); const [error, setError] = useState(""); const [isChatOpen, setIsChatOpen] = useState(false); const { notify } = useNotifications();
+  useEffect(() => { if (!qrValue) return; apiGet<MachineContext>(`/machines/lookup/${encodeURIComponent(qrValue)}`).then(setMachine).catch((loadError: unknown) => { const message = readableError(loadError, "Unable to load the machine context."); setError(message); notify(message, "error"); }); }, [qrValue, notify]);
+  return <div className="app-shell"><AppHeader /><main className="page-content machine-page"><button className="back-link" type="button" onClick={() => navigate("/home")}>← All Machines</button>{error && <p className="status-message error-message">{error}</p>}{!machine && !error && <p className="status-message">Loading machine context...</p>}{machine && <><p className="eyebrow dark-eyebrow">CONNECTED MACHINE</p><div className="machine-heading"><div><h1>{machine.machine_id}</h1><p>{machine.model_code} · Serial No. {machine.serial_number}</p></div><span className="qr-badge">QR Verified</span></div><section className="machine-overview"><article><span>Customer</span><strong>{machine.company_name}</strong></article><article><span>Location</span><strong>{machine.plant_location ?? "Not available"}</strong></article><article><span>Model</span><strong>{machine.model_description ?? machine.model_code}</strong></article><article><span>Delivered</span><strong>{machine.delivery_date ? formatDateTime(machine.delivery_date) : "Not available"}</strong></article><article><span>PLC family</span><strong>{machine.plc_family ?? "Not available"}</strong></article><article><span>Software version</span><strong>{machine.software_version ?? "Not available"}</strong></article></section><section className="configuration-card"><p className="eyebrow dark-eyebrow">CONFIGURATION</p><p>{machine.operational_context}</p></section><OperationalData machineId={machine.machine_id} /><ManualSearch machineId={machine.machine_id} /><button className="assistant-launcher" type="button" onClick={() => setIsChatOpen(true)} aria-label="Open AROL Assistant" title="Open AROL Assistant"><span aria-hidden="true">Chat</span></button>{isChatOpen && <AssistantChat machineId={machine.machine_id} onClose={() => setIsChatOpen(false)} />}<section className="next-actions" aria-label="Machine features"><article><strong>AROL Assistant</strong><span>The chat is connected to the machine context and available backend agents.</span></article><article><strong>Operational Data</strong><span>View live alarms, IoT telemetry and maintenance tickets for this machine.</span></article></section></>}</main><AppFooter /></div>;
+}
