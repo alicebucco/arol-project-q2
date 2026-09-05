@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 AgentName = Literal["iot", "manuals", "service", "orders"]
@@ -42,7 +42,27 @@ class OrchestrationPlan(_StrictContract):
     """
 
     requests: list[AgentRequest] = Field(min_length=1, max_length=4)
-    needs_machine_context: bool
+
+
+class PlannerDecision(_StrictContract):
+    """The planner's top-level decision before any evidence is retrieved.
+
+    A plan is meaningful only for ``retrieve_evidence``. General questions
+    need no backend retrieval. Trusted context, such as a selected machine,
+    is enforced by the backend after the decision is made.
+    """
+
+    action: Literal["retrieve_evidence", "answer_without_evidence"]
+    plan: OrchestrationPlan | None = None
+
+    @model_validator(mode="after")
+    def valid_decision_shape(self) -> "PlannerDecision":
+        if self.action == "retrieve_evidence":
+            if self.plan is None:
+                raise ValueError("Evidence retrieval requires a plan.")
+        elif self.plan is not None:
+            raise ValueError("An answer without evidence cannot include a plan.")
+        return self
 
 
 class EvidenceSource(_StrictContract):

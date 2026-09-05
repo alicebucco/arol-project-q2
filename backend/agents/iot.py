@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from core.auth import AuthContext
+from core.contracts import AgentResult
 from core.data_access import (
     authorize_machine,
     count_alarm_events,
@@ -230,3 +231,102 @@ async def compare_telemetry_periods(
         "second_period": {"start_time": second_start, "end_time": second_end, **second},
         "changes": changes,
     }
+
+
+async def recent_alarms_evidence(
+    machine_id: str,
+    user: AuthContext,
+    limit: int,
+    **filters: Any,
+) -> AgentResult:
+    """Return authorised alarm records in the orchestration result contract."""
+
+    alarms = await recent_alarms(machine_id, user, limit, **filters)
+    return AgentResult(
+        agent="iot",
+        operation="recent_alarms",
+        evidence={"machine_id": machine_id, "alarms": alarms},
+        structured_data={"machine_id": machine_id, "alarms": alarms},
+    )
+
+
+async def count_alarms_evidence(
+    machine_id: str,
+    user: AuthContext,
+    **filters: Any,
+) -> AgentResult:
+    """Return an authorised alarm count in the orchestration result contract."""
+
+    result = await count_alarms(machine_id, user, **filters)
+    return AgentResult(
+        agent="iot",
+        operation="count_alarms",
+        evidence=result,
+        structured_data={"machine_id": machine_id},
+    )
+
+
+async def alarm_summary_evidence(
+    machine_id: str,
+    user: AuthContext,
+    limit: int,
+    **filters: Any,
+) -> AgentResult:
+    """Return authorised alarm patterns in the orchestration result contract."""
+
+    result = await alarm_summary(machine_id, user, limit, **filters)
+    return AgentResult(
+        agent="iot",
+        operation="alarm_summary",
+        evidence=result,
+        structured_data={"machine_id": machine_id, "alarm_patterns": result["patterns"]},
+    )
+
+
+async def telemetry_evidence(
+    machine_id: str,
+    user: AuthContext,
+    limit: int,
+    **filters: Any,
+) -> AgentResult:
+    """Return authorised telemetry in the orchestration result contract."""
+
+    snapshots = await telemetry(machine_id, user, limit, **filters)
+    return AgentResult(
+        agent="iot",
+        operation="telemetry",
+        evidence={"machine_id": machine_id, "telemetry": snapshots},
+        structured_data={"machine_id": machine_id, "telemetry": snapshots},
+    )
+
+
+async def telemetry_summary_evidence(
+    machine_id: str,
+    user: AuthContext,
+    **filters: Any,
+) -> AgentResult:
+    """Return an authorised telemetry summary in the orchestration result contract."""
+
+    result = await telemetry_summary(machine_id, user, **filters)
+    return AgentResult(
+        agent="iot",
+        operation="telemetry_summary",
+        evidence=result,
+        structured_data={"machine_id": machine_id},
+    )
+
+
+async def compare_telemetry_periods_evidence(
+    machine_id: str,
+    user: AuthContext,
+    **parameters: Any,
+) -> AgentResult:
+    """Return an authorised period comparison in the orchestration result contract."""
+
+    result = await compare_telemetry_periods(machine_id, user, **parameters)
+    return AgentResult(
+        agent="iot",
+        operation="compare_telemetry_periods",
+        evidence=result,
+        structured_data={"machine_id": machine_id},
+    )

@@ -6,23 +6,17 @@ from dataclasses import dataclass
 from datetime import datetime, time, timezone
 from typing import Any
 
-from agents.iot import (
-    alarm_summary,
-    compare_telemetry_periods,
-    count_alarms,
-    recent_alarms,
-    telemetry,
-    telemetry_summary,
-)
 from agents.manuals import ManualsUnavailableError, search as search_manual
-from agents.orders import orders, quotes
-from agents.service import maintenance_tickets, observed_maintenance_plan
 from agents.troubleshoot import investigate
 from core.alarm_codes import alarm_meaning, normalise_alarm_code
 from core.auth import AuthContext
 from core.business_time import BUSINESS_TODAY
+from core.contracts import AgentRequest, AgentResult, OrchestrationPlan, PlannerDecision
+from core.config import get_settings
 from core.data_access import MachineNotFoundError, authorize_machine, get_recent_alarms_for_code
 from core.llm import generate_chat_reply
+from core.operation_registry import OPERATION_REGISTRY, OperationContext
+from core.planner import decide_question
 
 
 class MissingMachineContextError(ValueError):
@@ -35,6 +29,15 @@ class OrchestrationResult:
     answer: str
     manual_evidence: list[dict[str, Any]] | None = None
     structured_data: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class EvidenceBundle:
+    """Agent results kept separate for composition and for the existing UI."""
+
+    results: list[AgentResult]
+    composer_evidence: list[dict[str, Any]]
+    structured_data: dict[str, Any]
 
 
 MACHINE_PATTERN = re.compile(r"\bMCH-[A-Z0-9-]+\b", re.IGNORECASE)
@@ -126,50 +129,83 @@ def _iso_periods(message: str) -> list[tuple[datetime, datetime]]:
     return periods
 
 
-async def _iot_evidence(message: str, machine_id: str, user: AuthContext) -> dict[str, Any]:
-    """Choose a bounded database operation instead of always loading five rows."""
+def _deterministic_plan(intent: str, message: str) -> OrchestrationPlan | None:
+    """Temporary planner that maps the legacy router to registered operations.
+
+    It deliberately produces the same strict ``OrchestrationPlan`` that the
+    future LLM planner will produce.  Therefore replacing this bridge will not
+    change authorisation, parameter validation, agent invocation, or UI data.
+    """
 
     text = message.casefold()
     periods = _iso_periods(message)
     start_time, end_time = periods[0] if periods else (None, None)
     code_match = ALARM_CODE_PATTERN.search(message)
     alarm_code = code_match.group(0).upper() if code_match else None
-    count_terms = ("how many", "number of", "count", "quante", "quanti", "conteggio")
-    summary_terms = ("most frequent", "recurring", "repeated", "group", "frequency", "più frequ", "ricorrent")
-    telemetry_terms = ("telemetr", "temperature", "energy", "uptime", "production", "temperatura", "energia", "produzion")
-    statistic_terms = ("average", "mean", "minimum", "maximum", "total", "trend", "media", "minim", "massim", "totale", "andamento")
 
-    if alarm_code and any(term in text for term in count_terms):
-        return {"operation": "count_alarms", "result": await count_alarms(
-            machine_id, user, start_time=start_time, end_time=end_time,
-            alarm_code=alarm_code,
-        )}
-    if "alarm" in text or "allarm" in text:
-        if any(term in text for term in summary_terms):
-            return {"operation": "alarm_summary", "result": await alarm_summary(
-                machine_id, user, start_time=start_time, end_time=end_time,
-                alarm_code=alarm_code,
-            )}
-        return {"operation": "recent_alarms", "machine_id": machine_id, "alarms": await recent_alarms(
-            machine_id, user, 20, start_time=start_time, end_time=end_time,
-            alarm_code=alarm_code,
-        )}
-    if any(term in text for term in telemetry_terms) and any(term in text for term in statistic_terms):
-        if len(periods) >= 2 and any(term in text for term in ("compare", "comparison", "confront")):
-            return {"operation": "compare_telemetry_periods", "result": await compare_telemetry_periods(
-                machine_id, user,
-                first_start=periods[0][0], first_end=periods[0][1],
-                second_start=periods[1][0], second_end=periods[1][1],
-            )}
-        return {"operation": "telemetry_summary", "result": await telemetry_summary(
-            machine_id, user, start_time=start_time, end_time=end_time,
-        )}
-    return {
-        "operation": "recent_operational_data",
-        "machine_id": machine_id,
-        "alarms": await recent_alarms(machine_id, user, 20, start_time=start_time, end_time=end_time),
-        "telemetry": await telemetry(machine_id, user, 20, start_time=start_time, end_time=end_time),
-    }
+    if intent == "iot":
+        alarm_parameters = {"start_time": start_time, "end_time": end_time, "alarm_code": alarm_code}
+        count_terms = ("how many", "number of", "count", "quante", "quanti", "conteggio")
+        summary_terms = ("most frequent", "recurring", "repeated", "group", "frequency", "più frequ", "ricorrent")
+        telemetry_terms = ("telemetr", "temperature", "energy", "uptime", "production", "temperatura", "energia", "produzion")
+        statistic_terms = ("average", "mean", "minimum", "maximum", "total", "trend", "media", "minim", "massim", "totale", "andamento")
+
+        if alarm_code and any(term in text for term in count_terms):
+            requests = [AgentRequest(agent="iot", operation="count_alarms", parameters=alarm_parameters)]
+        elif "alarm" in text or "allarm" in text:
+            operation = "alarm_summary" if any(term in text for term in summary_terms) else "recent_alarms"
+            requests = [AgentRequest(agent="iot", operation=operation, parameters={**alarm_parameters, "limit": 20})]
+        elif any(term in text for term in telemetry_terms) and any(term in text for term in statistic_terms):
+            if len(periods) >= 2 and any(term in text for term in ("compare", "comparison", "confront")):
+                requests = [AgentRequest(
+                    agent="iot",
+                    operation="compare_telemetry_periods",
+                    parameters={
+                        "first_start": periods[0][0], "first_end": periods[0][1],
+                        "second_start": periods[1][0], "second_end": periods[1][1],
+                    },
+                )]
+            else:
+                requests = [AgentRequest(
+                    agent="iot",
+                    operation="telemetry_summary",
+                    parameters={"start_time": start_time, "end_time": end_time},
+                )]
+        else:
+            requests = [
+                AgentRequest(agent="iot", operation="recent_alarms", parameters={**alarm_parameters, "limit": 20}),
+                AgentRequest(agent="iot", operation="telemetry", parameters={"start_time": start_time, "end_time": end_time, "limit": 20}),
+            ]
+        return OrchestrationPlan(requests=requests)
+
+    if intent == "manuals":
+        return OrchestrationPlan(
+            requests=[AgentRequest(agent="manuals", operation="search", parameters={"query": message, "limit": 5})],
+        )
+    if intent == "service":
+        return OrchestrationPlan(
+            requests=[AgentRequest(agent="service", operation="maintenance_tickets", parameters={"limit": 10})],
+        )
+    if intent == "maintenance_due":
+        return OrchestrationPlan(
+            requests=[AgentRequest(agent="service", operation="observed_maintenance_plan")],
+        )
+    if intent == "orders":
+        return OrchestrationPlan(
+            requests=[
+                AgentRequest(agent="orders", operation="orders", parameters={"limit": 10}),
+                AgentRequest(agent="orders", operation="quotes", parameters={"limit": 10}),
+            ],
+        )
+    return None
+
+
+def _plan_for_chat(intent: str, message: str) -> OrchestrationPlan:
+    """Build the temporary deterministic fallback while the planner is disabled."""
+
+    plan = _deterministic_plan(intent, message)
+    assert plan is not None
+    return plan
 
 
 def _machine_id(message: str, machine_id: str | None) -> str | None:
@@ -188,30 +224,37 @@ def _require_machine(message: str, machine_id: str | None) -> str:
     return resolved
 
 
-async def _evidence(intent: str, message: str, machine_id: str | None, user: AuthContext) -> Any:
-    if intent == "iot":
-        target = _require_machine(message, machine_id)
-        return await _iot_evidence(message, target, user)
-    if intent == "alarm_guidance":
-        target = _require_machine(message, machine_id)
-        code = ALARM_CODE_PATTERN.search(message)
-        assert code is not None
-        return await alarm_guidance_evidence(target, code.group(0), user, 5)
-    if intent == "service":
-        target = _require_machine(message, machine_id)
-        return {"machine_id": target, "maintenance_tickets": await maintenance_tickets(target, user, 10)}
-    if intent == "maintenance_due":
-        target = _require_machine(message, machine_id)
-        return {"maintenance_observation": await observed_maintenance_plan(target, user)}
-    if intent == "manuals":
-        target = _require_machine(message, machine_id)
-        return {"machine_id": target, "manual_evidence": await search_manual(target, message, user, 5)}
-    if intent == "troubleshoot":
-        target = _require_machine(message, machine_id)
-        return await investigate(target, message, user, 5)
-    if intent == "orders":
-        return {"orders": await orders(user, 10), "quotes": await quotes(user, 10)}
-    return None
+async def _execute_plan(
+    plan: OrchestrationPlan,
+    message: str,
+    machine_id: str | None,
+    user: AuthContext,
+) -> EvidenceBundle:
+    """Execute only allow-listed operations and retain each result boundary."""
+
+    target = (
+        _require_machine(message, machine_id)
+        if OPERATION_REGISTRY.plan_requires_machine_context(plan.requests)
+        else None
+    )
+    context = OperationContext(user=user, machine_id=target)
+    results = [await OPERATION_REGISTRY.execute(request, context) for request in plan.requests]
+
+    structured_data: dict[str, Any] = {}
+    composer_evidence: list[dict[str, Any]] = []
+    for result in results:
+        if result.structured_data:
+            structured_data.update(result.structured_data)
+        composer_evidence.append(
+            {
+                "agent": result.agent,
+                "operation": result.operation,
+                "evidence": result.evidence,
+                "sources": [source.model_dump() for source in result.sources],
+                "warnings": result.warnings,
+            }
+        )
+    return EvidenceBundle(results, composer_evidence, structured_data)
 
 
 async def alarm_guidance_evidence(
@@ -367,20 +410,20 @@ async def handle_chat(
     """Route a chat message, collect authorised evidence, and compose an answer."""
 
     intent = classify_intent(message)
-    if intent == "general":
+    planner_enabled = get_settings().llm_planner_enabled
+    planner_decision = await decide_question(message) if planner_enabled else None
+    if planner_decision is not None and planner_decision.action == "answer_without_evidence":
+        return OrchestrationResult("general", await generate_chat_reply(message))
+    if intent == "general" and planner_decision is None:
         return OrchestrationResult("general", await generate_chat_reply(message))
 
-    evidence = await _evidence(intent, message, machine_id, user)
-    # The course manuals are restricted local material. Their text can be shown
-    # to an authorised user, but is never included in a request to an external
-    # LLM provider.
-    if intent == "manuals":
-        return OrchestrationResult(
-            "manuals",
-            _local_manual_answer(evidence),
-            manual_evidence=evidence["manual_evidence"],
-        )
+    # These two legacy diagnostic paths are intentionally kept until their
+    # multi-operation plans and role-specific evidence policy are registered.
+    # All normal single- and multi-agent retrieval already flows through the
+    # operation registry below.
     if intent == "troubleshoot":
+        target = _require_machine(message, machine_id)
+        evidence = await investigate(target, message, user, 5)
         return OrchestrationResult(
             "troubleshoot",
             _local_troubleshoot_answer(evidence),
@@ -394,20 +437,35 @@ async def handle_chat(
             },
         )
     if intent == "alarm_guidance":
+        target = _require_machine(message, machine_id)
+        code = ALARM_CODE_PATTERN.search(message)
+        assert code is not None
+        evidence = await alarm_guidance_evidence(target, code.group(0), user, 5)
         return OrchestrationResult(
             "alarm_guidance",
             _local_alarm_guidance_answer(evidence),
             manual_evidence=evidence["manual_evidence"],
-            structured_data={
-                "machine_id": evidence["machine_id"],
-                "alarms": evidence["recent_events"],
-            },
+            structured_data={"machine_id": evidence["machine_id"], "alarms": evidence["recent_events"]},
+        )
+
+    plan = planner_decision.plan if planner_decision is not None else _plan_for_chat(intent, message)
+    assert plan is not None
+    bundle = await _execute_plan(plan, message, machine_id, user)
+    # The course manuals are restricted local material. Their text can be shown
+    # to an authorised user, but is never included in a request to an external
+    # LLM provider.
+    if intent == "manuals":
+        evidence = bundle.results[0].evidence
+        return OrchestrationResult(
+            "manuals",
+            _local_manual_answer(evidence),
+            manual_evidence=evidence["manual_evidence"],
         )
     if intent == "maintenance_due":
         return OrchestrationResult(
             "maintenance_due",
-            _local_maintenance_due_answer(evidence),
-            structured_data={"maintenance_observation": evidence["maintenance_observation"]},
+            _local_maintenance_due_answer(bundle.results[0].evidence),
+            structured_data=bundle.structured_data,
         )
 
     prompt = (
@@ -417,7 +475,8 @@ async def handle_chat(
         "Answer only in English and mention the relevant IDs and statuses. "
         f"Use {BUSINESS_TODAY.isoformat()} as today's date when interpreting "
         "quote expiry, open items, or overdue work.\n\n"
-        f"Evidence ({intent} agent):\n{json.dumps(evidence, default=str, ensure_ascii=False)}"
+        f"Evidence retrieved by the authorised agents:\n"
+        f"{json.dumps(bundle.composer_evidence, default=str, ensure_ascii=False)}"
     )
     system_prompt = (
         "You are the AROL Customer Platform assistant. "
@@ -427,5 +486,5 @@ async def handle_chat(
     return OrchestrationResult(
         intent,
         await generate_chat_reply(prompt, system_prompt=system_prompt),
-        structured_data=evidence,
+        structured_data=bundle.structured_data,
     )

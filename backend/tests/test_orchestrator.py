@@ -1,11 +1,13 @@
 import asyncio
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 import core.orchestrator as orchestrator
 from core.auth import AuthContext
+from core.contracts import AgentResult
 
 
 @pytest.mark.parametrize(
@@ -67,11 +69,15 @@ def test_manual_intent_never_calls_external_llm(monkeypatch: pytest.MonkeyPatch)
         ],
     }
 
-    async def fake_evidence(*_args: object, **_kwargs: object) -> dict[str, object]:
-        return evidence
+    async def fake_execute(*_args: object, **_kwargs: object) -> orchestrator.EvidenceBundle:
+        return orchestrator.EvidenceBundle(
+            [AgentResult(agent="manuals", operation="search", evidence=evidence)],
+            [],
+            {},
+        )
 
     llm = AsyncMock(return_value="This must not be used.")
-    monkeypatch.setattr(orchestrator, "_evidence", fake_evidence)
+    monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
     monkeypatch.setattr(orchestrator, "generate_chat_reply", llm)
 
     result = asyncio.run(
@@ -94,10 +100,14 @@ def test_data_agent_keeps_structured_evidence_for_the_chat(monkeypatch: pytest.M
         "telemetry": [],
     }
 
-    async def fake_evidence(*_args: object, **_kwargs: object) -> dict[str, object]:
-        return evidence
+    async def fake_execute(*_args: object, **_kwargs: object) -> orchestrator.EvidenceBundle:
+        return orchestrator.EvidenceBundle(
+            [AgentResult(agent="iot", operation="recent_alarms", evidence=evidence, structured_data=evidence)],
+            [{"agent": "iot", "operation": "recent_alarms", "evidence": evidence, "sources": [], "warnings": []}],
+            evidence,
+        )
 
-    monkeypatch.setattr(orchestrator, "_evidence", fake_evidence)
+    monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
     monkeypatch.setattr(orchestrator, "generate_chat_reply", AsyncMock(return_value="One open alarm was found."))
 
     result = asyncio.run(
@@ -112,25 +122,82 @@ def test_data_agent_keeps_structured_evidence_for_the_chat(monkeypatch: pytest.M
     assert result.structured_data == evidence
 
 
-def test_iot_evidence_uses_database_count_for_count_question(monkeypatch: pytest.MonkeyPatch) -> None:
-    count = AsyncMock(return_value={"machine_id": "MCH-0001", "occurrences": 4})
-    recent = AsyncMock()
-    telemetry = AsyncMock()
-    monkeypatch.setattr(orchestrator, "count_alarms", count)
-    monkeypatch.setattr(orchestrator, "recent_alarms", recent)
-    monkeypatch.setattr(orchestrator, "telemetry", telemetry)
+def test_iot_count_plan_is_executed_through_the_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = orchestrator._deterministic_plan(
+        "iot", "How many times did AL017_LOW_AIR_PRESSURE occur?"
+    )
+    assert plan is not None
+    assert plan.requests[0].operation == "count_alarms"
 
-    evidence = asyncio.run(orchestrator._iot_evidence(
-        "How many times did AL017_LOW_AIR_PRESSURE occur?",
-        "MCH-0001",
+    expected = AgentResult(
+        agent="iot", operation="count_alarms", evidence={"occurrences": 4}, structured_data={"machine_id": "MCH-0001"}
+    )
+    execute = AsyncMock(return_value=expected)
+    monkeypatch.setattr(orchestrator.OPERATION_REGISTRY, "execute", execute)
+
+    bundle = asyncio.run(orchestrator._execute_plan(
+        plan, "How many times did AL017_LOW_AIR_PRESSURE occur?", "MCH-0001",
         AuthContext("USR-001", "CMP-001", "full"),
     ))
 
-    assert evidence["operation"] == "count_alarms"
-    assert evidence["result"]["occurrences"] == 4
-    count.assert_awaited_once()
-    recent.assert_not_awaited()
-    telemetry.assert_not_awaited()
+    assert bundle.results == [expected]
+    assert bundle.structured_data == {"machine_id": "MCH-0001"}
+    assert bundle.composer_evidence[0]["evidence"] == {"occurrences": 4}
+    execute.assert_awaited_once()
+
+
+def test_orchestrator_uses_the_deterministic_plan_only_as_a_fallback() -> None:
+    result = orchestrator._plan_for_chat("iot", "Show recurring alarms.")
+
+    assert result.requests[0].operation == "alarm_summary"
+
+
+def test_enabled_planner_can_mark_an_operational_sounding_question_as_general(monkeypatch: pytest.MonkeyPatch) -> None:
+    decision = orchestrator.PlannerDecision.model_validate({"action": "answer_without_evidence"})
+    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
+    monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=decision))
+    reply = AsyncMock(return_value="I can help with the available machine information.")
+    monkeypatch.setattr(orchestrator, "generate_chat_reply", reply)
+
+    result = asyncio.run(
+        orchestrator.handle_chat(
+            "Show recent alarms.", AuthContext("USR-001", "CMP-001", "full"), "MCH-0001"
+        )
+    )
+
+    assert result.agent == "general"
+    reply.assert_awaited_once_with("Show recent alarms.")
+
+
+def test_enabled_planner_executes_its_retrieval_plan_through_the_registry_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = orchestrator.OrchestrationPlan.model_validate(
+        {"requests": [{"agent": "iot", "operation": "recent_alarms", "parameters": {"limit": 1}}]}
+    )
+    decision = orchestrator.PlannerDecision.model_validate(
+        {"action": "retrieve_evidence", "plan": plan.model_dump()}
+    )
+    bundle = orchestrator.EvidenceBundle(
+        [AgentResult(agent="iot", operation="recent_alarms", evidence={"alarms": []})],
+        [{"agent": "iot", "operation": "recent_alarms", "evidence": {"alarms": []}, "sources": [], "warnings": []}],
+        {"machine_id": "MCH-0001", "alarms": []},
+    )
+    execute_plan = AsyncMock(return_value=bundle)
+    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
+    monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=decision))
+    monkeypatch.setattr(orchestrator, "_execute_plan", execute_plan)
+    monkeypatch.setattr(orchestrator, "generate_chat_reply", AsyncMock(return_value="No recent alarms were found."))
+
+    result = asyncio.run(
+        orchestrator.handle_chat(
+            "Show recent alarms.", AuthContext("USR-001", "CMP-001", "full"), "MCH-0001"
+        )
+    )
+
+    assert result.agent == "iot"
+    assert result.structured_data == bundle.structured_data
+    assert execute_plan.await_args.args[0] == plan
+
+
 
 
 def test_alarm_guidance_never_calls_external_llm(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -146,7 +213,7 @@ def test_alarm_guidance_never_calls_external_llm(monkeypatch: pytest.MonkeyPatch
         return evidence
 
     llm = AsyncMock(return_value="This must not be used.")
-    monkeypatch.setattr(orchestrator, "_evidence", fake_evidence)
+    monkeypatch.setattr(orchestrator, "alarm_guidance_evidence", fake_evidence)
     monkeypatch.setattr(orchestrator, "generate_chat_reply", llm)
 
     result = asyncio.run(
@@ -177,11 +244,15 @@ def test_maintenance_due_never_calls_external_llm(monkeypatch: pytest.MonkeyPatc
     }
     evidence = {"maintenance_observation": observation}
 
-    async def fake_evidence(*_args: object, **_kwargs: object) -> dict[str, object]:
-        return evidence
+    async def fake_execute(*_args: object, **_kwargs: object) -> orchestrator.EvidenceBundle:
+        return orchestrator.EvidenceBundle(
+            [AgentResult(agent="service", operation="observed_maintenance_plan", evidence=evidence, structured_data=evidence)],
+            [],
+            evidence,
+        )
 
     llm = AsyncMock(return_value="This must not be used.")
-    monkeypatch.setattr(orchestrator, "_evidence", fake_evidence)
+    monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
     monkeypatch.setattr(orchestrator, "generate_chat_reply", llm)
 
     result = asyncio.run(
@@ -214,7 +285,7 @@ def test_troubleshoot_never_calls_external_llm_with_manual_evidence(monkeypatch:
         return evidence
 
     llm = AsyncMock(return_value="This must not be used.")
-    monkeypatch.setattr(orchestrator, "_evidence", fake_evidence)
+    monkeypatch.setattr(orchestrator, "investigate", fake_evidence)
     monkeypatch.setattr(orchestrator, "generate_chat_reply", llm)
 
     result = asyncio.run(

@@ -3,6 +3,7 @@
 from typing import Any
 
 from core.auth import AuthContext
+from core.contracts import AgentResult
 from core.data_access import (
     authorize_machine,
     get_maintenance_tickets,
@@ -29,3 +30,27 @@ async def observed_maintenance_plan(machine_id: str, user: AuthContext) -> dict[
     await authorize_machine(machine_id, user, domain="operational")
     telemetry_window, manual_contents = await get_observed_productive_hours(machine_id), await get_manual_contents(machine_id)
     return maintenance_observation(machine_id, telemetry_window, manual_contents)
+
+
+async def maintenance_tickets_evidence(machine_id: str, user: AuthContext, limit: int) -> AgentResult:
+    """Return authorised maintenance tickets in the orchestration result contract."""
+
+    tickets = await maintenance_tickets(machine_id, user, limit)
+    return AgentResult(
+        agent="service",
+        operation="maintenance_tickets",
+        evidence={"machine_id": machine_id, "maintenance_tickets": tickets},
+        structured_data={"machine_id": machine_id, "maintenance_tickets": tickets},
+    )
+
+
+async def observed_maintenance_plan_evidence(machine_id: str, user: AuthContext) -> AgentResult:
+    """Return documented maintenance observations in the orchestration result contract."""
+
+    observation = await observed_maintenance_plan(machine_id, user)
+    return AgentResult(
+        agent="service",
+        operation="observed_maintenance_plan",
+        evidence={"maintenance_observation": observation},
+        structured_data={"maintenance_observation": observation},
+    )

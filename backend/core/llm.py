@@ -21,8 +21,14 @@ SYSTEM_PROMPT = (
 )
 
 
-async def generate_chat_reply(message: str, system_prompt: str = SYSTEM_PROMPT) -> str:
-    """Send a single user message to Mercury and return its text response."""
+async def _generate_reply(
+    message: str,
+    system_prompt: str,
+    *,
+    temperature: float,
+    max_tokens: int,
+) -> str:
+    """Send one request to Mercury with caller-selected decoding settings."""
 
     settings = get_settings()
     if settings.llm_api_key is None:
@@ -39,8 +45,8 @@ async def generate_chat_reply(message: str, system_prompt: str = SYSTEM_PROMPT) 
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message},
             ],
-            temperature=0.75,
-            max_tokens=500,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
     except (APIConnectionError, APIStatusError) as error:
         raise LlmRequestError from error
@@ -48,3 +54,15 @@ async def generate_chat_reply(message: str, system_prompt: str = SYSTEM_PROMPT) 
         await client.close()
 
     return completion.choices[0].message.content or ""
+
+
+async def generate_chat_reply(message: str, system_prompt: str = SYSTEM_PROMPT) -> str:
+    """Generate a conversational reply using the existing chat settings."""
+
+    return await _generate_reply(message, system_prompt, temperature=0.75, max_tokens=500)
+
+
+async def generate_structured_reply(message: str, system_prompt: str) -> str:
+    """Generate deterministic, short text intended for schema validation."""
+
+    return await _generate_reply(message, system_prompt, temperature=0.0, max_tokens=800)

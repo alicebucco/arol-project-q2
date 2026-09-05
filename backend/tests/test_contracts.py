@@ -1,11 +1,13 @@
 import asyncio
 from datetime import datetime
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
 
-from core.contracts import AgentRequest, AgentResult, EvidenceSource, OrchestrationPlan
+from core.contracts import AgentRequest, AgentResult, EvidenceSource, OrchestrationPlan, PlannerDecision
 from core.auth import AuthContext
+import core.operation_registry as operation_registry
 from core.operation_registry import (
     MissingOperationMachineContextError,
     OperationContext,
@@ -13,7 +15,6 @@ from core.operation_registry import (
     OperationParameters,
     OperationRegistry,
     UnknownOperationError,
-    _manual_sources,
 )
 
 
@@ -24,7 +25,6 @@ def test_plan_accepts_a_bounded_multi_agent_request() -> None:
                 {"agent": "iot", "operation": "alarm_summary", "parameters": {"alarm_code": "AL017_LOW_AIR_PRESSURE"}},
                 {"agent": "service", "operation": "maintenance_tickets", "parameters": {}},
             ],
-            "needs_machine_context": True,
         }
     )
 
@@ -32,13 +32,27 @@ def test_plan_accepts_a_bounded_multi_agent_request() -> None:
     assert plan.requests[0].parameters["alarm_code"] == "AL017_LOW_AIR_PRESSURE"
 
 
+def test_planner_decision_distinguishes_retrieval_from_general_answer() -> None:
+    retrieval = PlannerDecision.model_validate(
+        {"action": "retrieve_evidence", "plan": {"requests": [{"agent": "iot", "operation": "recent_alarms"}]}}
+    )
+    general = PlannerDecision.model_validate({"action": "answer_without_evidence"})
+
+    assert retrieval.plan is not None
+    assert general.plan is None
+
+    with pytest.raises(ValidationError):
+        PlannerDecision.model_validate({"action": "retrieve_evidence"})
+
+
 @pytest.mark.parametrize(
     "payload",
     [
-        {"requests": [], "needs_machine_context": False},
-        {"requests": [{"agent": "iot", "operation": "recent-alarms"}], "needs_machine_context": True},
-        {"requests": [{"agent": "unknown", "operation": "search"}], "needs_machine_context": False},
-        {"requests": [{"agent": "iot", "operation": "recent_alarms", "sql": "SELECT * FROM alarms"}], "needs_machine_context": True},
+        {"requests": []},
+        {"requests": [{"agent": "iot", "operation": "recent-alarms"}]},
+        {"requests": [{"agent": "unknown", "operation": "search"}]},
+        {"requests": [{"agent": "iot", "operation": "recent_alarms", "sql": "SELECT * FROM alarms"}]},
+        {"requests": [{"agent": "iot", "operation": "recent_alarms"}], "needs_machine_context": True},
     ],
 )
 def test_plan_rejects_invalid_or_unapproved_shape(payload: dict[str, object]) -> None:
@@ -88,6 +102,16 @@ def test_registry_rejects_unknown_operations_and_operation_specific_parameters()
         )
 
 
+def test_registry_exposes_a_non_executable_catalogue_for_the_planner() -> None:
+    catalogue = operation_registry.OPERATION_REGISTRY.planner_catalog()
+    manuals_search = next(item for item in catalogue if item["agent"] == "manuals" and item["operation"] == "search")
+
+    assert "machine-manual" in manuals_search["description"]
+    assert manuals_search["requires_machine_context"] is True
+    assert manuals_search["parameters_schema"]["properties"]["query"]["minLength"] == 1
+    assert "handler" not in manuals_search
+
+
 def test_registry_executes_only_with_trusted_required_machine_context() -> None:
     calls: list[OperationContext] = []
 
@@ -110,18 +134,24 @@ def test_registry_executes_only_with_trusted_required_machine_context() -> None:
     assert calls[0].machine_id == "MCH-0001"
 
 
-def test_manual_registry_sources_do_not_include_raw_chunk_content() -> None:
-    sources = _manual_sources(
-        [{
-            "file": "15610_manual_EN.pdf",
-            "page": 32,
-            "section": "safety",
-            "title": "Safety guidance",
-            "relevance": 0.8,
-            "excerpt": "Wear protective gloves.",
-            "content": "This raw chunk must not enter the composer contract.",
-        }]
+def test_registry_delegates_to_the_agent_result_entry_point(monkeypatch) -> None:
+    expected = AgentResult(
+        agent="iot",
+        operation="recent_alarms",
+        evidence={"machine_id": "MCH-0001", "alarms": []},
+        structured_data={"machine_id": "MCH-0001", "alarms": []},
+    )
+    agent_operation = AsyncMock(return_value=expected)
+    monkeypatch.setattr(operation_registry, "recent_alarms_evidence", agent_operation)
+
+    result = asyncio.run(
+        operation_registry.OPERATION_REGISTRY.execute(
+            AgentRequest(agent="iot", operation="recent_alarms", parameters={"limit": 5}),
+            OperationContext(user=AuthContext("USR-001", "CMP-001", "full"), machine_id="MCH-0001"),
+        )
     )
 
-    assert sources[0].excerpt == "Wear protective gloves."
-    assert "content" not in sources[0].model_dump()
+    assert result == expected
+    agent_operation.assert_awaited_once()
+    assert agent_operation.await_args.args[:3] == ("MCH-0001", AuthContext("USR-001", "CMP-001", "full"), 5)
+    assert agent_operation.await_args.kwargs["alarm_code"] is None
