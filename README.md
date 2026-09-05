@@ -10,11 +10,12 @@ enforcing each user's company and role boundaries.
 ## Highlights
 
 - React and TypeScript frontend with authenticated chat.
-- FastAPI backend with intent routing for manuals, IoT, maintenance, commercial
-  data, troubleshooting, and general questions.
+- FastAPI backend with LLM-planned, backend-validated orchestration across
+  manuals, IoT, maintenance, commercial data, and general questions.
 - PostgreSQL and pgvector for relational data and the local manual-search index.
-- Local PDF chunking and embeddings: manual text is never sent to the external
-  LLM.
+- Local PDF chunking and embeddings: PDFs, raw chunks, PostgreSQL, and the
+  vector index never leave the backend; the composer receives only bounded,
+  authorised excerpts when required.
 - Server-side tenant and role enforcement for every data query.
 - Structured chat results for alarms, telemetry, maintenance tickets, orders,
   quotes, and manual citations.
@@ -92,22 +93,31 @@ Every data access is constrained to the authenticated user's company. A request
 outside the permitted role or tenant is explicitly denied; it is never
 presented as an empty result.
 
-## Manual privacy and RAG
+## Manual privacy, RAG, and LLM evidence
 
 The course manuals are restricted material and must remain in the local,
-Git-ignored `data/manuals/` directory. They are not committed, pushed, or sent
-to the external LLM.
+Git-ignored `data/manuals/` directory. PDF files are not committed, pushed, or
+sent to the external LLM. The LLM never has direct access to PostgreSQL, the
+`manual_chunks` table, the embedding model, or the vector index.
 
 The application extracts text locally, creates local embeddings, and stores
-them in `manual_chunks`. For manual and troubleshooting requests, the backend
-returns concise local excerpts with a file/page citation. Raw manual chunks are
-not exposed in the public API response.
+them in `manual_chunks`. An authorised manual search produces concise,
+relevance-ranked excerpts with file/page citations. The orchestrator may pass a
+bounded subset of those derived excerpts to the composer so it can formulate a
+grounded answer. Raw chunks are not exposed in the public API response and are
+not sent wholesale to the provider.
+
+The LLM first proposes a typed plan that selects only registered agent
+operations. The backend validates that plan, applies all tenant and role checks,
+retrieves evidence, and invokes the composer. It can combine several evidence
+agents for a diagnostic question; diagnostics are an orchestrated workflow, not
+a separate agent with broader database access.
 
 ## Tests
 
 The backend test suite covers authentication, tenant and role boundaries, API
-contracts, routing, local manual retrieval, and the guarantee that manual and
-troubleshooting flows do not call the external LLM.
+contracts, structured plan validation, local manual retrieval, evidence
+minimisation, and grounded composition.
 
 ```bash
 docker compose run --rm backend sh -c "pip install -r requirements-dev.txt && pytest"

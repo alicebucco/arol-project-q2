@@ -1,7 +1,8 @@
 # Dynamic Flows
 
 These sequence diagrams describe three representative flows: authentication,
-local manual retrieval, and a request rejected by role policy.
+LLM-planned local manual retrieval with grounded composition, and a request
+rejected by role policy.
 
 ## 1. Login
 
@@ -27,19 +28,25 @@ sequenceDiagram
     actor U as Customer user
     participant FE as Frontend
     participant API as Backend API
+    participant LLM as External LLM
     participant M as Manuals agent
     participant DB as PostgreSQL + pgvector
 
     U->>FE: “What are the installation requirements?”
     FE->>API: POST /chat with JWT and machine context
     API->>API: Resolve company and visibility
+    API->>LLM: Request structured plan, without business evidence
+    LLM-->>API: manuals.search with typed parameters
+    API->>API: Validate operation, machine context, and parameters
     API->>M: Retrieve for the authorised machine
     M->>DB: Vector search and local re-ranking
     DB-->>M: Relevant local chunks and metadata
     M-->>API: Excerpts and file/page citations
-    API-->>FE: English answer and manual sources
+    API->>LLM: Bounded authorised excerpts and citations
+    LLM-->>API: Grounded English answer
+    API-->>FE: English answer, manual sources, and structured data
     FE-->>U: Answer with expandable source cards
-    Note over API: No manual chunk is sent to the external LLM
+    Note over API: PDFs, PostgreSQL, vector index, and raw chunks never leave the backend
 ```
 
 ## 3. Request outside the user's role

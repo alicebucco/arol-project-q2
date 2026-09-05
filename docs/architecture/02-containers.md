@@ -11,7 +11,7 @@ a development-only database browser.
 | Container | Technology | Responsibility | Docker service |
 | --- | --- | --- | --- |
 | **Frontend SPA** | React, TypeScript, Vite | Login, chat interface, structured result tables, and manual-source cards. | `frontend` (port 5173) |
-| **Backend API** | Python, FastAPI | Authentication, routing, agents, access checks, data retrieval, and response formatting. | `backend` (port 8000) |
+| **Backend API** | Python, FastAPI | Authentication, LLM-planned orchestration, evidence agents, access checks, data retrieval, and response composition. | `backend` (port 8000) |
 | **Database** | PostgreSQL with `pgvector` | Relational dataset, password hashes, and local manual chunks with embeddings. | `db` (port 5432) |
 | **Adminer** | Adminer | Development-only browser interface for PostgreSQL. | `adminer` (port 8080) |
 
@@ -43,5 +43,5 @@ flowchart TB
     FE -->|"REST / JSON"| BE
     BE -->|"SQL"| DB
     Adminer -.->|"Development only"| DB
-    BE -->|"HTTPS; no manual text"| LLM
+    BE -->|"HTTPS; validated plans and bounded evidence"| LLM
 ```

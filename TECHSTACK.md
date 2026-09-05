@@ -5,7 +5,7 @@
 | Frontend | React, TypeScript, Vite | Responsive single-page application and authenticated chat interface. |
 | Backend | Python 3.12, FastAPI | REST API, authentication, orchestration, role enforcement, and data access. |
 | Database | PostgreSQL 16 with `pgvector` | Stores the relational dataset and local vector index for manual retrieval. |
-| LLM | Mercury through an OpenAI-compatible API | Generates English responses only when no manual content must be processed externally. |
+| LLM | Mercury through an OpenAI-compatible API | Produces validated orchestration plans and grounded English responses from bounded, authorised evidence. |
 | Manual embeddings | `sentence-transformers/all-MiniLM-L6-v2` | Runs locally to index and retrieve restricted PDF manual content. |
 | Containers | Docker Compose | Starts frontend, backend, PostgreSQL, and Adminer with one command. |
 | Tests | pytest, TypeScript compiler, Vite build | Verifies backend behaviour and frontend type/build integrity. |

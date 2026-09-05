@@ -1,0 +1,70 @@
+"""Typed contracts for LLM plans and evidence returned by backend agents.
+
+These models are deliberately independent of database records and FastAPI
+response models.  They form the boundary between the future LLM planner, the
+authorised agent dispatcher, and the LLM composer.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+AgentName = Literal["iot", "manuals", "service", "orders"]
+
+
+class _StrictContract(BaseModel):
+    """Reject fields that have not been explicitly approved by the backend."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class AgentRequest(_StrictContract):
+    """One allow-listable operation requested by an orchestration plan.
+
+    ``parameters`` remains a generic object at this layer.  The operation
+    registry introduced next validates it against the schema for the selected
+    agent operation before anything is executed.
+    """
+
+    agent: AgentName
+    operation: str = Field(min_length=1, max_length=100, pattern=r"^[a-z][a-z0-9_]*$")
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class OrchestrationPlan(_StrictContract):
+    """Validated, bounded work proposed for one chat question.
+
+    The model can request several independent evidence operations, but it can
+    neither select security scope nor execute arbitrary code, SQL, or tools.
+    """
+
+    requests: list[AgentRequest] = Field(min_length=1, max_length=4)
+    needs_machine_context: bool
+
+
+class EvidenceSource(_StrictContract):
+    """A stable citation or record reference accompanying agent evidence."""
+
+    source_id: str = Field(min_length=1, max_length=200)
+    source_type: Literal["manual", "operational", "service", "commercial"]
+    citation: dict[str, Any] = Field(default_factory=dict)
+    excerpt: str | None = Field(default=None, max_length=2_000)
+
+
+class AgentResult(_StrictContract):
+    """Evidence produced by one authorised agent operation.
+
+    ``evidence`` is for the composer; ``structured_data`` is reserved for the
+    existing frontend tables.  They are intentionally separate so the LLM does
+    not determine the UI data contract.
+    """
+
+    agent: AgentName
+    operation: str = Field(min_length=1, max_length=100, pattern=r"^[a-z][a-z0-9_]*$")
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    sources: list[EvidenceSource] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    structured_data: dict[str, Any] | None = None

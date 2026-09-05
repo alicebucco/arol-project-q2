@@ -22,9 +22,15 @@ The design choices behind this implementation are recorded in
 
 - **Machine-specific context.** A manual belongs to a physical machine through
   its serial number, not merely to a model.
-- **Local manual RAG.** PDF text is chunked and embedded locally; it is not
-  passed to the external LLM. Search results contain an excerpt and a
-  file/page citation, rather than raw chunk text.
+- **Local manual RAG.** PDF text is chunked, embedded and searched locally.
+  The external LLM never receives a PDF, the vector index, a database
+  connection, or unrestricted raw chunks. It can receive only a bounded set of
+  authorised, derived excerpts and their file/page citations as evidence for
+  the final response.
+- **LLM-planned, backend-executed orchestration.** The model proposes a
+  structured plan using a fixed registry of agent operations. The backend
+  validates the plan, enforces permissions, obtains evidence, and asks the
+  model to compose a grounded answer.
 - **Server-side access control.** Company and visibility boundaries are applied
   in the API and SQL queries. They are not delegated to the model.
 - **Structured evidence.** The chat UI renders manual citations and structured

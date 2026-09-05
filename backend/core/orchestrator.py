@@ -14,14 +14,14 @@ from agents.iot import (
     telemetry,
     telemetry_summary,
 )
-from agents.alarms import alarm_meaning, explain as explain_alarm
 from agents.manuals import ManualsUnavailableError, search as search_manual
 from agents.orders import orders, quotes
 from agents.service import maintenance_tickets, observed_maintenance_plan
 from agents.troubleshoot import investigate
+from core.alarm_codes import alarm_meaning, normalise_alarm_code
 from core.auth import AuthContext
 from core.business_time import BUSINESS_TODAY
-from core.data_access import MachineNotFoundError
+from core.data_access import MachineNotFoundError, authorize_machine, get_recent_alarms_for_code
 from core.llm import generate_chat_reply
 
 
@@ -196,7 +196,7 @@ async def _evidence(intent: str, message: str, machine_id: str | None, user: Aut
         target = _require_machine(message, machine_id)
         code = ALARM_CODE_PATTERN.search(message)
         assert code is not None
-        return await explain_alarm(target, code.group(0), user, 5)
+        return await alarm_guidance_evidence(target, code.group(0), user, 5)
     if intent == "service":
         target = _require_machine(message, machine_id)
         return {"machine_id": target, "maintenance_tickets": await maintenance_tickets(target, user, 10)}
@@ -212,6 +212,39 @@ async def _evidence(intent: str, message: str, machine_id: str | None, user: Aut
     if intent == "orders":
         return {"orders": await orders(user, 10), "quotes": await quotes(user, 10)}
     return None
+
+
+async def alarm_guidance_evidence(
+    machine_id: str,
+    alarm_code: str,
+    user: AuthContext,
+    limit: int,
+) -> dict[str, Any]:
+    """Preserve legacy alarm guidance until the planner replaces this workflow.
+
+    The deterministic display name belongs in ``core.alarm_codes``. The future
+    planner will dispatch the equivalent IoT and Manuals operations directly.
+    """
+
+    normalized_code = normalise_alarm_code(alarm_code)
+    await authorize_machine(machine_id, user, domain="manuals")
+    manual_evidence = await search_manual(
+        machine_id,
+        f"{normalized_code} {alarm_meaning(normalized_code)} cause remedy troubleshooting",
+        user,
+        limit,
+    )
+    recent_events: list[dict[str, Any]] = []
+    if user.visibility in {"full", "technician"}:
+        recent_events = await get_recent_alarms_for_code(machine_id, normalized_code, limit)
+
+    return {
+        "machine_id": machine_id,
+        "alarm_code": normalized_code,
+        "meaning": alarm_meaning(normalized_code),
+        "recent_events": recent_events,
+        "manual_evidence": manual_evidence,
+    }
 
 
 def _manual_reference(chunk: dict[str, Any]) -> str:

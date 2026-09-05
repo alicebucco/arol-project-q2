@@ -4,7 +4,7 @@ from typing import Any
 
 from core.auth import AuthContext
 from core.data_access import authorize_machine, get_repeated_alarm_patterns
-from agents.alarms import alarm_meaning
+from core.alarm_codes import alarm_meaning
 from agents.iot import recent_alarms, telemetry
 from agents.manuals import search as search_manual
 from agents.service import maintenance_tickets

@@ -29,7 +29,7 @@ from core.data_access import (
     get_user_profile,
 )
 from core.llm import LlmNotConfiguredError, LlmRequestError, generate_chat_reply
-from core.orchestrator import MissingMachineContextError, handle_chat
+from core.orchestrator import MissingMachineContextError, alarm_guidance_evidence as explain_alarm, handle_chat
 from agents.iot import (
     alarm_summary,
     compare_telemetry_periods,
@@ -38,7 +38,6 @@ from agents.iot import (
     telemetry,
     telemetry_summary,
 )
-from agents.alarms import explain as explain_alarm
 from agents.service import maintenance_tickets, observed_maintenance_plan
 from agents.troubleshoot import investigate
 from agents.orders import orders, quotes

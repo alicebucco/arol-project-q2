@@ -35,21 +35,23 @@ letting an LLM generate unrestricted SQL.
 **Impact.** Tenant and visibility filters are injected server-side. New
 recurring questions may require a new query function.
 
-## 4. Five Specialised Agents
+## 4. Four Evidence Agents and an Orchestrated Diagnostic Workflow
 
-**Decision.** Use five logical agents:
+**Decision.** Use four logical evidence agents:
 
 - **Manuals** — local RAG over authorised machine manuals.
 - **IoT** — telemetry and alarm records.
 - **Service** — maintenance tickets.
 - **Orders** — quotes and orders.
-- **Troubleshoot** — combines manuals, IoT, and service evidence.
 
 **Why.** The dataset has distinct technical, operational, maintenance, and
-commercial domains. Troubleshooting needs evidence from more than one of them.
+commercial domains. Troubleshooting needs evidence from more than one of them,
+but does not need a separate data-access boundary.
 
-**Impact.** Intent routing distinguishes direct information requests from
-cross-domain diagnostic requests.
+**Impact.** Each agent authorises and returns structured evidence for a
+registered operation. A diagnostic request is a multi-agent workflow planned
+and composed by the orchestrator; it is not an independent `troubleshoot`
+agent. The LLM never receives database access or executes a query itself.
 
 ## 5. Server-side Access Control
 
@@ -93,27 +95,33 @@ their boundaries stay clear in code and documentation.
 **Why.** The project can use an OpenAI-compatible provider such as Mercury
 without vendor-specific application code.
 
-**Impact.** Changing provider is a configuration change. The LLM is used only
-for suitable general and structured-data response generation.
+**Impact.** Changing provider is a configuration change. The orchestrator uses
+the LLM in two constrained roles: a planner that returns a validated,
+structured agent-operation plan, and a composer that writes the final response
+from supplied evidence. The model may select only registered operations; the
+backend validates all parameters and runs all authorisation checks.
 
 ## 9. Local PDF Manual Ingestion
 
 **Decision.** Keep manuals in the ignored `data/manuals/` directory and extract
 their text locally with `pypdf`.
 
-**Why.** The manuals are restricted course material and must not be committed,
-pushed, or uploaded to external services.
+**Why.** The manuals are restricted course material and must not be committed
+or pushed. Retrieval must remain local and machine-specific.
 
 **Impact.** The pipeline preserves file and page metadata, uses section-aware
-sentence chunks with overlap, and can provide verifiable citations.
+sentence chunks with overlap, and can provide verifiable citations. PDF files,
+raw ingestion output, and unrestricted chunks never leave the backend. The
+composer may receive a small, authorised, relevance-ranked set of derived
+excerpts with their citations when that is necessary to answer a question.
 
 ## 10. Local Manual Embeddings
 
 **Decision.** Create embeddings locally with
 `sentence-transformers/all-MiniLM-L6-v2` and store them in pgvector.
 
-**Why.** Semantic manual retrieval is needed without transmitting manual text
-to an external service.
+**Why.** Semantic manual retrieval must be local so the external provider never
+needs access to the PDF corpus or the vector index.
 
 **Impact.** The first run downloads the model into Docker's `model_cache`
 volume. Changing the model requires regenerating the index.
@@ -140,4 +148,6 @@ tables.
 request that is loading, denied, or failed.
 
 **Impact.** The interface presents readable English messages and avoids
-exposing raw manual chunks or backend error details.
+exposing raw manual chunks or backend error details. The composer generates the
+domain response from evidence; local code retains only protocol, validation,
+authorisation, and technical-error handling.
