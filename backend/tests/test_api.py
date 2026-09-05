@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 import main
 from core.auth import AuthContext, get_current_user
 from core.llm import LlmRequestError
-from core.orchestrator import OrchestrationResult
+from core.contracts import AgentResult
+from core.orchestrator import EvidenceBundle, OrchestrationResult
 
 
 FULL_USER = AuthContext("USR-001", "CMP-001", "full")
@@ -165,15 +166,32 @@ def test_alarm_guidance_endpoint(client: TestClient, monkeypatch: pytest.MonkeyP
     timestamp = datetime(2026, 8, 5, tzinfo=timezone.utc)
     monkeypatch.setattr(
         main,
-        "explain_alarm",
+        "retrieve_alarm_guidance_evidence",
         AsyncMock(
-            return_value={
-                "machine_id": "MCH-0001",
-                "alarm_code": "AL017_LOW_AIR_PRESSURE",
-                "meaning": "Low air pressure",
-                "recent_events": [{"alarm_id": "ALM-1", "timestamp": timestamp, "alarm_code": "AL017_LOW_AIR_PRESSURE", "severity": "High", "alarm_status": "Open"}],
-                "manual_evidence": [{"source": "manual", "file": "15610_manual_EN.pdf", "page": 97, "section": "mechanical", "content": "Raw manual text", "excerpt": "Check the pressure.", "title": "Mechanical procedure", "highlights": ["pressure"], "relevance": 0.8, "similarity": 0.7}],
-            }
+            return_value=EvidenceBundle(
+                [
+                    AgentResult(
+                        agent="iot",
+                        operation="alarm_guidance_context",
+                        evidence={
+                            "machine_id": "MCH-0001",
+                            "alarm_code": "AL017_LOW_AIR_PRESSURE",
+                            "meaning": "Low air pressure",
+                            "recent_events": [{"alarm_id": "ALM-1", "timestamp": timestamp, "alarm_code": "AL017_LOW_AIR_PRESSURE", "severity": "High", "alarm_status": "Open"}],
+                        },
+                    ),
+                    AgentResult(
+                        agent="manuals",
+                        operation="search",
+                        evidence={
+                            "machine_id": "MCH-0001",
+                            "manual_evidence": [{"source": "manual", "file": "15610_manual_EN.pdf", "page": 97, "section": "mechanical", "excerpt": "Check the pressure.", "title": "Mechanical procedure", "highlights": ["pressure"], "relevance": 0.8, "similarity": 0.7}],
+                        },
+                    ),
+                ],
+                [],
+                {"machine_id": "MCH-0001", "alarms": []},
+            )
         ),
     )
 

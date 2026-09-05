@@ -29,7 +29,7 @@ from core.data_access import (
     get_user_profile,
 )
 from core.llm import LlmNotConfiguredError, LlmRequestError, generate_chat_reply
-from core.orchestrator import MissingMachineContextError, alarm_guidance_evidence as explain_alarm, handle_chat
+from core.orchestrator import MissingMachineContextError, handle_chat, retrieve_alarm_guidance_evidence
 from agents.iot import (
     alarm_summary,
     compare_telemetry_periods,
@@ -567,7 +567,7 @@ async def machine_alarm_guidance(
     """Explain one dataset alarm code with cited machine-manual guidance."""
 
     try:
-        report = await explain_alarm(machine_id.strip(), alarm_code, user, limit)
+        bundle = await retrieve_alarm_guidance_evidence(machine_id.strip(), alarm_code, user, limit)
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -584,6 +584,17 @@ async def machine_alarm_guidance(
             detail="Manual search is temporarily unavailable.",
         ) from error
 
+    context_result = next(
+        result
+        for result in bundle.results
+        if result.agent == "iot" and result.operation == "alarm_guidance_context"
+    )
+    manual_result = next(
+        result
+        for result in bundle.results
+        if result.agent == "manuals" and result.operation == "search"
+    )
+    report = context_result.evidence
     return AlarmGuidance(
         machine_id=report["machine_id"],
         alarm_code=report["alarm_code"],
@@ -595,7 +606,7 @@ async def machine_alarm_guidance(
             )
             for row in report["recent_events"]
         ],
-        manual_evidence=[manual_search_result(row) for row in report["manual_evidence"]],
+        manual_evidence=[manual_search_result(row) for row in manual_result.evidence["manual_evidence"]],
     )
 
 

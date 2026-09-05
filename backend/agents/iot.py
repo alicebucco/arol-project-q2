@@ -4,12 +4,14 @@ from datetime import datetime
 from typing import Any
 
 from core.auth import AuthContext
+from core.alarm_codes import alarm_meaning, normalise_alarm_code
 from core.contracts import AgentResult
 from core.data_access import (
     authorize_machine,
     count_alarm_events,
     get_machine_configuration_profile,
     get_recent_alarms,
+    get_recent_alarms_for_code,
     get_telemetry_snapshots,
     summarize_alarm_events,
     summarize_telemetry_snapshots,
@@ -329,4 +331,38 @@ async def compare_telemetry_periods_evidence(
         operation="compare_telemetry_periods",
         evidence=result,
         structured_data={"machine_id": machine_id},
+    )
+
+
+async def alarm_guidance_context_evidence(
+    machine_id: str,
+    user: AuthContext,
+    alarm_code: str,
+    limit: int,
+) -> AgentResult:
+    """Return alarm meaning and role-authorised event context for guidance."""
+
+    normalized_code = normalise_alarm_code(alarm_code)
+    # Every role that can read the machine manual may receive the deterministic
+    # code meaning. Operational events remain limited to technical roles.
+    await authorize_machine(machine_id, user, domain="manuals")
+    events: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    if user.visibility in {"full", "technician"}:
+        events = await get_recent_alarms_for_code(machine_id, normalized_code, limit)
+    else:
+        warnings.append("Operational event history is unavailable for the current role.")
+
+    evidence = {
+        "machine_id": machine_id,
+        "alarm_code": normalized_code,
+        "meaning": alarm_meaning(normalized_code),
+        "recent_events": events,
+    }
+    return AgentResult(
+        agent="iot",
+        operation="alarm_guidance_context",
+        evidence=evidence,
+        warnings=warnings,
+        structured_data={"machine_id": machine_id, "alarms": events},
     )

@@ -6,14 +6,12 @@ from dataclasses import dataclass
 from datetime import datetime, time, timezone
 from typing import Any
 
-from agents.manuals import ManualsUnavailableError, search as search_manual
 from agents.troubleshoot import investigate
 from core.alarm_codes import alarm_meaning, normalise_alarm_code
 from core.auth import AuthContext
 from core.business_time import BUSINESS_TODAY
 from core.contracts import AgentRequest, AgentResult, OrchestrationPlan, PlannerDecision
 from core.config import get_settings
-from core.data_access import MachineNotFoundError, authorize_machine, get_recent_alarms_for_code
 from core.llm import generate_chat_reply
 from core.operation_registry import OPERATION_REGISTRY, OperationContext
 from core.planner import decide_question
@@ -178,6 +176,9 @@ def _deterministic_plan(intent: str, message: str) -> OrchestrationPlan | None:
             ]
         return OrchestrationPlan(requests=requests)
 
+    if intent == "alarm_guidance" and alarm_code:
+        return _alarm_guidance_plan(alarm_code, limit=5)
+
     if intent == "manuals":
         return OrchestrationPlan(
             requests=[AgentRequest(agent="manuals", operation="search", parameters={"query": message, "limit": 5})],
@@ -257,43 +258,71 @@ async def _execute_plan(
     return EvidenceBundle(results, composer_evidence, structured_data)
 
 
-async def alarm_guidance_evidence(
+def _alarm_guidance_plan(alarm_code: str, limit: int) -> OrchestrationPlan:
+    """Build the two registered evidence requests for one alarm code."""
+
+    normalized_code = normalise_alarm_code(alarm_code)
+    return OrchestrationPlan(
+        requests=[
+            AgentRequest(
+                agent="iot",
+                operation="alarm_guidance_context",
+                parameters={"alarm_code": normalized_code, "limit": limit},
+            ),
+            AgentRequest(
+                agent="manuals",
+                operation="search",
+                parameters={
+                    "query": (
+                        f"{normalized_code} {alarm_meaning(normalized_code)} "
+                        "cause remedy troubleshooting"
+                    ),
+                    "limit": limit,
+                },
+            ),
+        ],
+    )
+
+
+async def retrieve_alarm_guidance_evidence(
     machine_id: str,
     alarm_code: str,
     user: AuthContext,
     limit: int,
-) -> dict[str, Any]:
-    """Preserve legacy alarm guidance until the planner replaces this workflow.
+) -> EvidenceBundle:
+    """Retrieve alarm guidance through the same registered operations as chat."""
 
-    The deterministic display name belongs in ``core.alarm_codes``. The future
-    planner will dispatch the equivalent IoT and Manuals operations directly.
-    """
-
-    normalized_code = normalise_alarm_code(alarm_code)
-    await authorize_machine(machine_id, user, domain="manuals")
-    manual_evidence = await search_manual(
-        machine_id,
-        f"{normalized_code} {alarm_meaning(normalized_code)} cause remedy troubleshooting",
-        user,
-        limit,
-    )
-    recent_events: list[dict[str, Any]] = []
-    if user.visibility in {"full", "technician"}:
-        recent_events = await get_recent_alarms_for_code(machine_id, normalized_code, limit)
-
-    return {
-        "machine_id": machine_id,
-        "alarm_code": normalized_code,
-        "meaning": alarm_meaning(normalized_code),
-        "recent_events": recent_events,
-        "manual_evidence": manual_evidence,
-    }
+    return await _execute_plan(_alarm_guidance_plan(alarm_code, limit), "", machine_id, user)
 
 
 def _manual_reference(chunk: dict[str, Any]) -> str:
     """Format one local-only manual citation for a chat response."""
 
     return f"{chunk['file']}, p. {chunk['page']}, sezione {chunk['section']}"
+
+
+async def _compose_evidence_answer(message: str, bundle: EvidenceBundle) -> str:
+    """Compose a grounded answer from bounded, authorised agent evidence."""
+
+    prompt = (
+        f"User question: {message}\n\n"
+        "Use only the following evidence retrieved by authorised backend tools. "
+        "If it is empty, say that no matching records were found. Do not invent values. "
+        "Answer only in English and mention relevant IDs, statuses, or manual citations when useful. "
+        f"Use {BUSINESS_TODAY.isoformat()} as today's date when interpreting "
+        "quote expiry, open items, or overdue work.\n\n"
+        f"Evidence retrieved by the authorised agents:\n"
+        f"{json.dumps(bundle.composer_evidence, default=str, ensure_ascii=False)}"
+    )
+    system_prompt = (
+        "You are the AROL Customer Platform assistant. "
+        "The backend has already enforced authentication, company scope, and role permissions. "
+        "Summarise only the supplied evidence; never reveal or infer data outside it. "
+        "Manual evidence contains bounded excerpts and citations, never raw PDF chunks. "
+        "For maintenance observations, treat observed productive hours as a bounded telemetry window, "
+        "not as a lifetime counter; do not claim a threshold proves maintenance is currently due or completed."
+    )
+    return await generate_chat_reply(prompt, system_prompt=system_prompt)
 
 
 def _local_manual_answer(evidence: dict[str, Any]) -> str:
@@ -359,49 +388,6 @@ def _local_troubleshoot_answer(evidence: dict[str, Any]) -> str:
     )
 
 
-def _local_alarm_guidance_answer(evidence: dict[str, Any]) -> str:
-    """Explain the mnemonic and point to local manual evidence without an LLM."""
-
-    events = evidence["recent_events"]
-    event_summary = (
-        "; ".join(
-            f"{event['severity']} / {event['alarm_status']} ({event['timestamp'].isoformat()})"
-            for event in events
-        )
-        if events
-        else "Operational event history is unavailable for your role, or no matching events were found."
-    )
-    manual_answer = _local_manual_answer({"manual_evidence": evidence["manual_evidence"]})
-    return (
-        f"{evidence['alarm_code']} means: {evidence['meaning']}. "
-        f"Recent events: {event_summary}\n\n{manual_answer}"
-    )
-
-
-def _local_maintenance_due_answer(evidence: dict[str, Any]) -> str:
-    """Report documented thresholds against the actual telemetry coverage only."""
-
-    observation = evidence["maintenance_observation"]
-    reached = observation["reached_threshold_hours"]
-    reached_text = ", ".join(f"{threshold} h" for threshold in reached) if reached else "none"
-    next_threshold = observation["next_threshold_hours"]
-    next_text = f"{next_threshold} h" if next_threshold is not None else "none documented"
-    first_snapshot = observation["first_snapshot"]
-    last_snapshot = observation["last_snapshot"]
-    period = (
-        f"{first_snapshot.isoformat()} to {last_snapshot.isoformat()}"
-        if first_snapshot is not None and last_snapshot is not None
-        else "the available telemetry window"
-    )
-    return (
-        f"For {observation['machine_id']}, telemetry from {period} contains "
-        f"{observation['observed_productive_hours']} observed productive hours. "
-        f"Documented thresholds reached in this window: {reached_text}. "
-        f"Next documented threshold: {next_text}.\n\n"
-        f"{observation['scope_note']}"
-    )
-
-
 async def handle_chat(
     message: str,
     user: AuthContext,
@@ -417,10 +403,9 @@ async def handle_chat(
     if intent == "general" and planner_decision is None:
         return OrchestrationResult("general", await generate_chat_reply(message))
 
-    # These two legacy diagnostic paths are intentionally kept until their
-    # multi-operation plans and role-specific evidence policy are registered.
-    # All normal single- and multi-agent retrieval already flows through the
-    # operation registry below.
+    # Troubleshooting remains a legacy diagnostic workflow until all of its
+    # evidence operations are registered. Alarm guidance already uses the
+    # regular multi-agent execution path below.
     if intent == "troubleshoot":
         target = _require_machine(message, machine_id)
         evidence = await investigate(target, message, user, 5)
@@ -437,54 +422,47 @@ async def handle_chat(
             },
         )
     if intent == "alarm_guidance":
-        target = _require_machine(message, machine_id)
-        code = ALARM_CODE_PATTERN.search(message)
-        assert code is not None
-        evidence = await alarm_guidance_evidence(target, code.group(0), user, 5)
+        plan = planner_decision.plan if planner_decision is not None else _plan_for_chat(intent, message)
+        assert plan is not None
+        bundle = await _execute_plan(plan, message, machine_id, user)
+        manual_result = next(
+            (
+                result
+                for result in bundle.results
+                if result.agent == "manuals" and result.operation == "search"
+            ),
+            None,
+        )
         return OrchestrationResult(
             "alarm_guidance",
-            _local_alarm_guidance_answer(evidence),
-            manual_evidence=evidence["manual_evidence"],
-            structured_data={"machine_id": evidence["machine_id"], "alarms": evidence["recent_events"]},
+            await _compose_evidence_answer(message, bundle),
+            manual_evidence=(
+                manual_result.evidence.get("manual_evidence") if manual_result is not None else None
+            ),
+            structured_data=bundle.structured_data,
         )
 
     plan = planner_decision.plan if planner_decision is not None else _plan_for_chat(intent, message)
     assert plan is not None
     bundle = await _execute_plan(plan, message, machine_id, user)
-    # The course manuals are restricted local material. Their text can be shown
-    # to an authorised user, but is never included in a request to an external
-    # LLM provider.
+    # The manuals agent removes raw PDF chunks before an EvidenceBundle is
+    # composed. Only bounded excerpts and citations may reach the composer.
     if intent == "manuals":
         evidence = bundle.results[0].evidence
         return OrchestrationResult(
             "manuals",
-            _local_manual_answer(evidence),
+            await _compose_evidence_answer(message, bundle),
             manual_evidence=evidence["manual_evidence"],
         )
     if intent == "maintenance_due":
         return OrchestrationResult(
             "maintenance_due",
-            _local_maintenance_due_answer(bundle.results[0].evidence),
+            await _compose_evidence_answer(message, bundle),
             structured_data=bundle.structured_data,
         )
 
-    prompt = (
-        f"User question: {message}\n\n"
-        "Use only the following evidence retrieved by authorised backend tools. "
-        "If it is empty, say that no matching records were found. Do not invent values. "
-        "Answer only in English and mention the relevant IDs and statuses. "
-        f"Use {BUSINESS_TODAY.isoformat()} as today's date when interpreting "
-        "quote expiry, open items, or overdue work.\n\n"
-        f"Evidence retrieved by the authorised agents:\n"
-        f"{json.dumps(bundle.composer_evidence, default=str, ensure_ascii=False)}"
-    )
-    system_prompt = (
-        "You are the AROL Customer Platform assistant. "
-        "The backend has already enforced authentication, company scope, and role permissions. "
-        "Summarise only the supplied evidence; never reveal or infer data outside it."
-    )
     return OrchestrationResult(
         intent,
-        await generate_chat_reply(prompt, system_prompt=system_prompt),
+        await _compose_evidence_answer(message, bundle),
         structured_data=bundle.structured_data,
     )

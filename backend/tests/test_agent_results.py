@@ -24,6 +24,27 @@ def test_iot_evidence_entry_point_returns_agent_result(monkeypatch) -> None:
     assert result.structured_data == {"machine_id": "MCH-0001", "alarms": alarms}
 
 
+def test_alarm_guidance_context_keeps_operational_events_role_scoped(monkeypatch) -> None:
+    monkeypatch.setattr(iot, "authorize_machine", AsyncMock())
+    events = AsyncMock(return_value=[{"alarm_id": "ALM-1"}])
+    monkeypatch.setattr(iot, "get_recent_alarms_for_code", events)
+
+    technical = asyncio.run(
+        iot.alarm_guidance_context_evidence("MCH-0001", USER, "AL017_LOW_AIR_PRESSURE", 5)
+    )
+    commercial = asyncio.run(
+        iot.alarm_guidance_context_evidence(
+            "MCH-0001", AuthContext("USR-002", "CMP-001", "commercial"), "AL017_LOW_AIR_PRESSURE", 5
+        )
+    )
+
+    assert technical.evidence["meaning"] == "Low air pressure"
+    assert technical.structured_data == {"machine_id": "MCH-0001", "alarms": [{"alarm_id": "ALM-1"}]}
+    assert commercial.evidence["recent_events"] == []
+    assert commercial.warnings == ["Operational event history is unavailable for the current role."]
+    assert events.await_count == 1
+
+
 def test_service_evidence_entry_point_returns_agent_result(monkeypatch) -> None:
     tickets = [{"ticket_id": "TCK-1"}]
     monkeypatch.setattr(service, "maintenance_tickets", AsyncMock(return_value=tickets))

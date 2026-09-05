@@ -5,6 +5,7 @@ import pytest
 
 from core.auth import AuthContext
 from core.alarm_codes import alarm_meaning, normalise_alarm_code
+from core.contracts import AgentResult
 import core.orchestrator as orchestrator
 
 
@@ -16,13 +17,35 @@ def test_alarm_code_is_validated_and_its_mnemonic_is_readable() -> None:
 
 
 def test_commercial_user_receives_manual_guidance_without_operational_events(monkeypatch) -> None:
-    monkeypatch.setattr(orchestrator, "authorize_machine", AsyncMock())
-    monkeypatch.setattr(orchestrator, "search_manual", AsyncMock(return_value=[{"page": 97}]))
-    recent_events = AsyncMock(return_value=[{"alarm_id": "ALM-1"}])
-    monkeypatch.setattr(orchestrator, "get_recent_alarms_for_code", recent_events)
+    async def fake_execute(*_args, **_kwargs) -> orchestrator.EvidenceBundle:
+        return orchestrator.EvidenceBundle(
+            [
+                AgentResult(
+                    agent="iot",
+                    operation="alarm_guidance_context",
+                    evidence={
+                        "machine_id": "MCH-0001",
+                        "alarm_code": "AL017_LOW_AIR_PRESSURE",
+                        "meaning": "Low air pressure",
+                        "recent_events": [],
+                    },
+                    warnings=["Operational event history is unavailable for the current role."],
+                ),
+                AgentResult(
+                    agent="manuals",
+                    operation="search",
+                    evidence={"machine_id": "MCH-0001", "manual_evidence": [{"page": 97}]},
+                ),
+            ],
+            [],
+            {"machine_id": "MCH-0001", "alarms": []},
+        )
 
-    report = asyncio.run(
-        orchestrator.alarm_guidance_evidence(
+    execute = AsyncMock(side_effect=fake_execute)
+    monkeypatch.setattr(orchestrator, "_execute_plan", execute)
+
+    bundle = asyncio.run(
+        orchestrator.retrieve_alarm_guidance_evidence(
             "MCH-0001",
             "AL017_LOW_AIR_PRESSURE",
             AuthContext("USR-1", "CMP-001", "commercial"),
@@ -30,7 +53,7 @@ def test_commercial_user_receives_manual_guidance_without_operational_events(mon
         )
     )
 
-    assert report["meaning"] == "Low air pressure"
-    assert report["manual_evidence"] == [{"page": 97}]
-    assert report["recent_events"] == []
-    recent_events.assert_not_awaited()
+    assert bundle.results[0].evidence["meaning"] == "Low air pressure"
+    assert bundle.results[1].evidence["manual_evidence"] == [{"page": 97}]
+    assert bundle.results[0].evidence["recent_events"] == []
+    assert execute.await_args.args[0].requests[0].operation == "alarm_guidance_context"

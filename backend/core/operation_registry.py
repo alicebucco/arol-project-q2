@@ -15,6 +15,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agents.iot import (
+    alarm_guidance_context_evidence,
     alarm_summary_evidence,
     compare_telemetry_periods_evidence,
     count_alarms_evidence,
@@ -77,6 +78,16 @@ class RecentAlarmsParameters(AlarmQueryParameters):
 
 class AlarmSummaryParameters(AlarmQueryParameters):
     limit: int = Field(default=20, ge=1, le=100)
+
+
+class AlarmGuidanceParameters(OperationParameters):
+    alarm_code: str = Field(min_length=1, max_length=100)
+    limit: int = Field(default=5, ge=1, le=20)
+
+    @field_validator("alarm_code")
+    @classmethod
+    def normalise_alarm_code(cls, value: str) -> str:
+        return normalise_alarm_code(value)
 
 
 class TelemetryQueryParameters(TimeRangeParameters):
@@ -222,6 +233,13 @@ async def _alarm_summary(parameters: OperationParameters, context: OperationCont
     )
 
 
+async def _alarm_guidance_context(parameters: OperationParameters, context: OperationContext) -> AgentResult:
+    assert isinstance(parameters, AlarmGuidanceParameters)
+    return await alarm_guidance_context_evidence(
+        _machine(context), context.user, parameters.alarm_code, parameters.limit
+    )
+
+
 async def _telemetry(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, RecentTelemetryParameters)
     return await telemetry_evidence(
@@ -274,6 +292,7 @@ OPERATION_REGISTRY = OperationRegistry(
         OperationDefinition("iot", "recent_alarms", RecentAlarmsParameters, True, _recent_alarms, "Retrieve recent alarm events, optionally filtered by code, severity, status, or time range."),
         OperationDefinition("iot", "count_alarms", AlarmQueryParameters, True, _count_alarms, "Count alarm events when the user asks how often an alarm or condition occurred."),
         OperationDefinition("iot", "alarm_summary", AlarmSummaryParameters, True, _alarm_summary, "Group alarm events by code to identify frequent or recurring alarm conditions."),
+        OperationDefinition("iot", "alarm_guidance_context", AlarmGuidanceParameters, True, _alarm_guidance_context, "Return a deterministic alarm-code meaning and, for roles authorised for operational data, matching recent events. Use when the user asks what one alarm code means."),
         OperationDefinition("iot", "telemetry", RecentTelemetryParameters, True, _telemetry, "Retrieve recent machine telemetry snapshots such as production, uptime, temperature, and operational status."),
         OperationDefinition("iot", "telemetry_summary", TelemetryQueryParameters, True, _telemetry_summary, "Aggregate telemetry metrics over a requested time range for averages, totals, minima, maxima, or trends."),
         OperationDefinition("iot", "compare_telemetry_periods", CompareTelemetryPeriodsParameters, True, _compare_telemetry_periods, "Compare aggregate telemetry metrics across two explicit time periods."),

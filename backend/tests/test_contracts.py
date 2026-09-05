@@ -101,6 +101,16 @@ def test_registry_rejects_unknown_operations_and_operation_specific_parameters()
             AgentRequest(agent="iot", operation="telemetry_summary", parameters={"limit": 5})
         )
 
+    definition, parameters = OPERATION_REGISTRY.validate(
+        AgentRequest(
+            agent="iot",
+            operation="alarm_guidance_context",
+            parameters={"alarm_code": " al017_low_air_pressure ", "limit": 5},
+        )
+    )
+    assert definition.requires_machine_context is True
+    assert parameters.alarm_code == "AL017_LOW_AIR_PRESSURE"
+
 
 def test_registry_exposes_a_non_executable_catalogue_for_the_planner() -> None:
     catalogue = operation_registry.OPERATION_REGISTRY.planner_catalog()

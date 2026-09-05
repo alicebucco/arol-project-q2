@@ -54,29 +54,40 @@ def test_manual_answer_uses_local_excerpts_not_raw_chunks() -> None:
     assert "Wear protective gloves" not in answer
 
 
-def test_manual_intent_never_calls_external_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_manual_intent_uses_composer_with_sanitised_manual_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
+    manual_evidence = [{
+        "file": "15610_manual_EN.pdf",
+        "page": 32,
+        "section": "safety",
+        "excerpt": "Use the safety guard.",
+        "title": "Safety guidance",
+        "highlights": ["safety"],
+        "relevance": 0.8,
+    }]
     evidence = {
         "machine_id": "MCH-0001",
-        "manual_evidence": [
-            {
-                "file": "15610_manual_EN.pdf",
-                "page": 32,
-                "section": "safety",
-                "content": "Raw source content.",
-                "excerpt": "Use the safety guard.",
-                "title": "Safety guidance",
-            }
-        ],
+        "manual_evidence": manual_evidence,
     }
 
     async def fake_execute(*_args: object, **_kwargs: object) -> orchestrator.EvidenceBundle:
         return orchestrator.EvidenceBundle(
             [AgentResult(agent="manuals", operation="search", evidence=evidence)],
-            [],
+            [{
+                "agent": "manuals",
+                "operation": "search",
+                "evidence": evidence,
+                "sources": [{
+                    "source_id": "manual:15610_manual_EN.pdf:32",
+                    "source_type": "manual",
+                    "citation": {"file": "15610_manual_EN.pdf", "page": 32, "section": "safety"},
+                    "excerpt": "Use the safety guard.",
+                }],
+                "warnings": [],
+            }],
             {},
         )
 
-    llm = AsyncMock(return_value="This must not be used.")
+    llm = AsyncMock(return_value="Use the safety guard before maintenance.")
     monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
     monkeypatch.setattr(orchestrator, "generate_chat_reply", llm)
 
@@ -89,8 +100,11 @@ def test_manual_intent_never_calls_external_llm(monkeypatch: pytest.MonkeyPatch)
     )
 
     assert result.agent == "manuals"
-    assert result.manual_evidence == evidence["manual_evidence"]
-    llm.assert_not_awaited()
+    assert result.answer == "Use the safety guard before maintenance."
+    assert result.manual_evidence == manual_evidence
+    prompt = llm.await_args.args[0]
+    assert "Use the safety guard." in prompt
+    assert "Raw source content." not in prompt
 
 
 def test_data_agent_keeps_structured_evidence_for_the_chat(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -152,6 +166,25 @@ def test_orchestrator_uses_the_deterministic_plan_only_as_a_fallback() -> None:
     assert result.requests[0].operation == "alarm_summary"
 
 
+def test_alarm_guidance_fallback_plan_collects_iot_and_manual_evidence() -> None:
+    plan = orchestrator._deterministic_plan(
+        "alarm_guidance", "What does AL017_LOW_AIR_PRESSURE mean?"
+    )
+
+    assert plan is not None
+    assert [(request.agent, request.operation) for request in plan.requests] == [
+        ("iot", "alarm_guidance_context"),
+        ("manuals", "search"),
+    ]
+    assert plan.requests[0].parameters == {
+        "alarm_code": "AL017_LOW_AIR_PRESSURE",
+        "limit": 5,
+    }
+    assert plan.requests[1].parameters["query"] == (
+        "AL017_LOW_AIR_PRESSURE Low air pressure cause remedy troubleshooting"
+    )
+
+
 def test_enabled_planner_can_mark_an_operational_sounding_question_as_general(monkeypatch: pytest.MonkeyPatch) -> None:
     decision = orchestrator.PlannerDecision.model_validate({"action": "answer_without_evidence"})
     monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
@@ -200,20 +233,45 @@ def test_enabled_planner_executes_its_retrieval_plan_through_the_registry_path(m
 
 
 
-def test_alarm_guidance_never_calls_external_llm(monkeypatch: pytest.MonkeyPatch) -> None:
-    evidence = {
+def test_alarm_guidance_uses_composer_with_multi_agent_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
+    iot_evidence = {
         "machine_id": "MCH-0001",
         "alarm_code": "AL017_LOW_AIR_PRESSURE",
         "meaning": "Low air pressure",
         "recent_events": [],
-        "manual_evidence": [{"file": "15610_manual_EN.pdf", "page": 97}],
     }
+    manual_evidence = [{
+        "file": "15610_manual_EN.pdf",
+        "page": 97,
+        "section": "troubleshooting",
+        "excerpt": "Check the pneumatic supply.",
+        "title": "Troubleshooting guidance",
+    }]
+    manual_result = AgentResult(
+        agent="manuals",
+        operation="search",
+        evidence={"machine_id": "MCH-0001", "manual_evidence": manual_evidence},
+    )
+    bundle = orchestrator.EvidenceBundle(
+        [
+            AgentResult(
+                agent="iot",
+                operation="alarm_guidance_context",
+                evidence=iot_evidence,
+                structured_data={"machine_id": "MCH-0001", "alarms": []},
+            ),
+            manual_result,
+        ],
+        [
+            {"agent": "iot", "operation": "alarm_guidance_context", "evidence": iot_evidence, "sources": [], "warnings": []},
+            {"agent": "manuals", "operation": "search", "evidence": manual_result.evidence, "sources": [], "warnings": []},
+        ],
+        {"machine_id": "MCH-0001", "alarms": []},
+    )
 
-    async def fake_evidence(*_args: object, **_kwargs: object) -> dict[str, object]:
-        return evidence
-
-    llm = AsyncMock(return_value="This must not be used.")
-    monkeypatch.setattr(orchestrator, "alarm_guidance_evidence", fake_evidence)
+    execute_plan = AsyncMock(return_value=bundle)
+    llm = AsyncMock(return_value="AL017_LOW_AIR_PRESSURE means low air pressure.")
+    monkeypatch.setattr(orchestrator, "_execute_plan", execute_plan)
     monkeypatch.setattr(orchestrator, "generate_chat_reply", llm)
 
     result = asyncio.run(
@@ -225,12 +283,15 @@ def test_alarm_guidance_never_calls_external_llm(monkeypatch: pytest.MonkeyPatch
     )
 
     assert result.agent == "alarm_guidance"
-    assert "Low air pressure" in result.answer
-    assert result.manual_evidence == evidence["manual_evidence"]
-    llm.assert_not_awaited()
+    assert result.answer == "AL017_LOW_AIR_PRESSURE means low air pressure."
+    assert result.manual_evidence == manual_evidence
+    assert result.structured_data == bundle.structured_data
+    assert execute_plan.await_args.args[0].requests[0].operation == "alarm_guidance_context"
+    assert "Low air pressure" in llm.await_args.args[0]
+    assert "Check the pneumatic supply." in llm.await_args.args[0]
 
 
-def test_maintenance_due_never_calls_external_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_maintenance_due_uses_composer_with_the_observation_scope(monkeypatch: pytest.MonkeyPatch) -> None:
     observation = {
         "machine_id": "MCH-0001",
         "observed_productive_hours": 514.26,
@@ -247,11 +308,17 @@ def test_maintenance_due_never_calls_external_llm(monkeypatch: pytest.MonkeyPatc
     async def fake_execute(*_args: object, **_kwargs: object) -> orchestrator.EvidenceBundle:
         return orchestrator.EvidenceBundle(
             [AgentResult(agent="service", operation="observed_maintenance_plan", evidence=evidence, structured_data=evidence)],
-            [],
+            [{
+                "agent": "service",
+                "operation": "observed_maintenance_plan",
+                "evidence": evidence,
+                "sources": [],
+                "warnings": [],
+            }],
             evidence,
         )
 
-    llm = AsyncMock(return_value="This must not be used.")
+    llm = AsyncMock(return_value="The available telemetry window contains 514.26 productive hours.")
     monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
     monkeypatch.setattr(orchestrator, "generate_chat_reply", llm)
 
@@ -264,11 +331,11 @@ def test_maintenance_due_never_calls_external_llm(monkeypatch: pytest.MonkeyPatc
     )
 
     assert result.agent == "maintenance_due"
-    assert "514.26 observed productive hours" in result.answer
-    assert "40 h, 500 h" in result.answer
+    assert result.answer == "The available telemetry window contains 514.26 productive hours."
     assert result.manual_evidence is None
     assert result.structured_data == {"maintenance_observation": observation}
-    llm.assert_not_awaited()
+    assert observation["scope_note"] in llm.await_args.args[0]
+    assert "not as a lifetime counter" in llm.await_args.kwargs["system_prompt"]
 
 
 def test_troubleshoot_never_calls_external_llm_with_manual_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
