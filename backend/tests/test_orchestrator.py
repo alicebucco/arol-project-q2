@@ -105,6 +105,8 @@ def test_manual_intent_uses_composer_with_sanitised_manual_evidence(monkeypatch:
     prompt = llm.await_args.args[0]
     assert "Use the safety guard." in prompt
     assert "Raw source content." not in prompt
+    assert "Do not include manual citations inline" in prompt
+    assert "Return plain text only" in llm.await_args.kwargs["system_prompt"]
 
 
 def test_data_agent_keeps_structured_evidence_for_the_chat(monkeypatch: pytest.MonkeyPatch) -> None:
