@@ -5,7 +5,15 @@ from __future__ import annotations
 import re
 
 
-ALARM_CODE_PATTERN = re.compile(r"^(AL\d{3})_([A-Z0-9_]+)$")
+ALARM_CODE_PREFIX_EXPRESSION = r"AL\d{3}"
+ALARM_CODE_MNEMONIC_EXPRESSION = r"[A-Z0-9_]+"
+ALARM_CODE_EXPRESSION = (
+    f"{ALARM_CODE_PREFIX_EXPRESSION}_{ALARM_CODE_MNEMONIC_EXPRESSION}"
+)
+ALARM_CODE_PATTERN = re.compile(
+    rf"^({ALARM_CODE_PREFIX_EXPRESSION})_({ALARM_CODE_MNEMONIC_EXPRESSION})$"
+)
+ALARM_CODE_IN_TEXT_PATTERN = re.compile(rf"\b{ALARM_CODE_EXPRESSION}\b", re.IGNORECASE)
 
 
 def normalise_alarm_code(alarm_code: str) -> str:

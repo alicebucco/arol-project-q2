@@ -6,12 +6,16 @@ from dataclasses import dataclass
 from datetime import datetime, time, timezone
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from agents.manuals import validate_manual_claim_links
 from core.alarm_codes import alarm_meaning, normalise_alarm_code
 from core.auth import AuthContext
 from core.business_time import BUSINESS_TODAY
 from core.contracts import AgentName, AgentRequest, AgentResult, OrchestrationPlan, PlannerDecision
 from core.config import get_settings
-from core.llm import generate_chat_reply
+from core.llm import generate_chat_reply, generate_structured_reply
+from core.maintenance_observation import maintenance_observation
 from core.operation_registry import OPERATION_REGISTRY, OperationContext
 from core.planner import decide_question
 
@@ -35,6 +39,24 @@ class EvidenceBundle:
     results: list[AgentResult]
     composer_evidence: list[dict[str, Any]]
     structured_data: dict[str, Any]
+
+
+class ManualClaim(BaseModel):
+    """One model-proposed claim that must be linked to an authorised chunk."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    claim: str = Field(min_length=1, max_length=1_000)
+    chunk_id: str = Field(min_length=1, max_length=200)
+    supporting_quote: str = Field(min_length=1, max_length=2_000)
+
+
+class ManualClaimReply(BaseModel):
+    """Structured LLM output used only before backend claim validation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    claims: list[ManualClaim] = Field(default_factory=list, max_length=10)
 
 
 MACHINE_PATTERN = re.compile(r"\bMCH-[A-Z0-9-]+\b", re.IGNORECASE)
@@ -187,9 +209,7 @@ def _deterministic_plan(
             requests=[AgentRequest(agent="service", operation="maintenance_tickets", parameters={"limit": 10})],
         )
     if intent == "maintenance_due":
-        return OrchestrationPlan(
-            requests=[AgentRequest(agent="service", operation="observed_maintenance_plan")],
-        )
+        return _maintenance_observation_plan()
     if intent == "orders":
         return OrchestrationPlan(
             requests=[
@@ -257,6 +277,60 @@ async def _execute_plan(
     return EvidenceBundle(results, composer_evidence, structured_data)
 
 
+def _maintenance_observation_plan() -> OrchestrationPlan:
+    """Collect independent IoT and Manuals evidence for a maintenance question."""
+
+    return OrchestrationPlan(requests=[
+        AgentRequest(agent="iot", operation="observed_productive_hours"),
+        AgentRequest(agent="manuals", operation="maintenance_requirements"),
+    ])
+
+
+def _correlate_maintenance_observation(bundle: EvidenceBundle) -> EvidenceBundle:
+    """Add a cautious orchestration conclusion to independent agent evidence."""
+
+    productive_hours = next(
+        (item.evidence for item in bundle.results
+         if item.agent == "iot" and item.operation == "observed_productive_hours"),
+        None,
+    )
+    manual_requirements = next(
+        (item.evidence for item in bundle.results
+         if item.agent == "manuals" and item.operation == "maintenance_requirements"),
+        None,
+    )
+    if productive_hours is None or manual_requirements is None:
+        raise RuntimeError("Maintenance correlation requires IoT and Manuals evidence.")
+
+    observation = maintenance_observation(
+        productive_hours["machine_id"],
+        productive_hours,
+        manual_requirements["requirements"],
+    )
+    correlation_evidence = {"maintenance_observation": observation}
+    return EvidenceBundle(
+        bundle.results,
+        [*bundle.composer_evidence, {
+            "agent": "orchestrator",
+            "operation": "correlate_maintenance_observation",
+            "evidence": correlation_evidence,
+            "sources": [],
+            "warnings": [],
+        }],
+        correlation_evidence,
+    )
+
+
+async def retrieve_maintenance_observation(
+    machine_id: str,
+    user: AuthContext,
+) -> dict[str, Any]:
+    """Retrieve and correlate maintenance evidence for the direct API endpoint."""
+
+    bundle = await _execute_plan(_maintenance_observation_plan(), "", machine_id, user)
+    return _correlate_maintenance_observation(bundle).structured_data["maintenance_observation"]
+
+
 def _alarm_guidance_plan(
     alarm_code: str,
     limit: int,
@@ -317,8 +391,57 @@ async def retrieve_alarm_guidance_evidence(
     )
 
 
+def _private_manual_evidence(bundle: EvidenceBundle) -> list[dict[str, Any]]:
+    """Return raw manual chunks held only in in-process agent results."""
+
+    chunks: list[dict[str, Any]] = []
+    for result in bundle.results:
+        if result.agent == "manuals" and result.operation == "search":
+            chunks.extend(result.private_evidence.get("manual_evidence", []))
+    return chunks
+
+
+async def _compose_validated_manual_answer(
+    message: str,
+    bundle: EvidenceBundle,
+    manual_evidence: list[dict[str, Any]],
+) -> str:
+    """Generate structured manual claims and discard any without valid provenance."""
+
+    prompt = (
+        f"User question: {message}\n\n"
+        "Return a JSON object with exactly one key, `claims`. Each claim must contain `claim`, `chunk_id`, "
+        "and `supporting_quote`. Use only the authorised manual chunks below. A supporting quote must be copied "
+        "from the cited chunk. Do not include file names, pages, Markdown, or fields other than those required. "
+        "If no direct manual claim is supported, return {\"claims\": []}.\n\n"
+        f"Authorised manual chunks:\n{json.dumps(manual_evidence, default=str, ensure_ascii=False)}"
+    )
+    system_prompt = (
+        "You extract conservative, source-grounded manual claims for the AROL Customer Platform. "
+        "Return valid JSON only. Do not infer causes, remedies, procedures, completion, or maintenance status "
+        "beyond the wording in one cited chunk."
+    )
+    try:
+        raw_reply = await generate_structured_reply(prompt, system_prompt)
+        proposed = ManualClaimReply.model_validate_json(raw_reply)
+    except ValidationError:
+        return "I found authorised manual evidence, but could not generate a validated summary. Please review the sources below."
+
+    validation = validate_manual_claim_links(
+        [claim.model_dump() for claim in proposed.claims], manual_evidence,
+    )
+    claims = [item["claim"] for item in validation["validated_claims"]]
+    if not claims:
+        return "No directly supported manual claim was produced from the authorised evidence. Please review the sources below."
+    return "\n".join(dict.fromkeys(claims))
+
+
 async def _compose_evidence_answer(message: str, bundle: EvidenceBundle) -> str:
     """Compose a grounded answer from bounded, authorised agent evidence."""
+
+    manual_evidence = _private_manual_evidence(bundle)
+    if manual_evidence:
+        return await _compose_validated_manual_answer(message, bundle, manual_evidence)
 
     prompt = (
         f"User question: {message}\n\n"
@@ -335,7 +458,7 @@ async def _compose_evidence_answer(message: str, bundle: EvidenceBundle) -> str:
         "You are the AROL Customer Platform assistant. "
         "The backend has already enforced authentication, company scope, and role permissions. "
         "Summarise only the supplied evidence; never reveal or infer data outside it. "
-        "Manual evidence contains bounded excerpts and citations, never raw PDF chunks. "
+        "Manual evidence is limited to authorised indexed chunks and citations, never full PDF documents. "
         "Return plain text only: do not use Markdown, HTML, asterisks, square brackets, "
         "backslashes, code fences, or inline citations. Use short paragraphs; if a list is "
         "necessary, use ordinary numbered lines. "
@@ -380,9 +503,15 @@ async def handle_chat(
     if intent == "general" and planner_decision is None:
         return OrchestrationResult(None, await generate_chat_reply(message))
 
-    plan = planner_decision.plan if planner_decision is not None else _plan_for_chat(intent, message, user)
+    plan = (
+        _maintenance_observation_plan()
+        if intent == "maintenance_due"
+        else planner_decision.plan if planner_decision is not None else _plan_for_chat(intent, message, user)
+    )
     assert plan is not None
     bundle = await _execute_plan(plan, message, machine_id, user)
+    if intent == "maintenance_due":
+        bundle = _correlate_maintenance_observation(bundle)
     return OrchestrationResult(
         _result_agents(bundle),
         await _compose_evidence_answer(message, bundle),

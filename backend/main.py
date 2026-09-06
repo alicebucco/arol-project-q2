@@ -1,10 +1,10 @@
 """FastAPI entry point for the AROL Customer Platform backend."""
 
 from pathlib import Path
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -21,15 +21,19 @@ from core.config import get_settings
 from core.db import check_connection, connection
 from core.data_access import (
     MachineNotFoundError,
+    TicketNotFoundError,
     OrderNotFoundError,
     QuoteNotFoundError,
-    get_company_order_detail,
     get_company_machines,
-    get_company_quote_history,
     get_user_profile,
 )
 from core.llm import LlmNotConfiguredError, LlmRequestError, generate_chat_reply
-from core.orchestrator import MissingMachineContextError, handle_chat, retrieve_alarm_guidance_evidence
+from core.orchestrator import (
+    MissingMachineContextError,
+    handle_chat,
+    retrieve_alarm_guidance_evidence,
+    retrieve_maintenance_observation,
+)
 from agents.iot import (
     alarm_summary,
     compare_telemetry_periods,
@@ -38,8 +42,8 @@ from agents.iot import (
     telemetry,
     telemetry_summary,
 )
-from agents.service import maintenance_tickets, observed_maintenance_plan
-from agents.orders import orders, quotes
+from agents.service import maintenance_tickets, search_tickets, ticket_detail
+from agents.orders import order_detail, quote_history, search_orders, search_quotes
 from agents.manuals import ManualsUnavailableError, can_open_file, search as search_manual
 
 
@@ -60,6 +64,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Total-Count", "X-Returned-Count", "X-Is-Truncated", "X-Limit"],
 )
 
 
@@ -190,6 +195,8 @@ class OrderRecord(BaseModel):
     quote_id: str
     order_status: str
     shipment_status: str
+    currency: str | None = None
+    order_date: date | None = None
 
 
 class OrderItem(BaseModel):
@@ -218,6 +225,8 @@ class OrderDetail(OrderRecord):
 
 
 class QuoteRecord(BaseModel):
+    currency: str | None = None
+    created_at: date | None = None
     quote_id: str
     valid_until: str | None = None
     validity_status: Literal["Valid", "Expired", "Unknown"]
@@ -246,7 +255,9 @@ class QuoteRevisionDetail(BaseModel):
 
 
 class QuoteLineChange(BaseModel):
-    change: Literal["added", "removed", "price_changed"]
+    previous_lines: list[QuoteLineDetail] = Field(default_factory=list)
+    current_lines: list[QuoteLineDetail] = Field(default_factory=list)
+    change: Literal["added", "removed", "price_changed", "ambiguous"]
     machine_id: str | None = None
     description: str | None = None
     previous_price: float | None = None
@@ -262,10 +273,12 @@ class QuoteHistory(BaseModel):
     description: str | None = None
     revisions: list[QuoteRevisionDetail]
     latest_comparison: list[QuoteLineChange]
+    comparison_basis: str | None = None
 
 
 class ManualCitation(BaseModel):
     source: Literal["manual"]
+    chunk_id: str | None = None
     file: str
     page: int
     section: str
@@ -278,6 +291,12 @@ class ManualSearchResult(BaseModel):
     highlights: list[str]
     relevance: float
     similarity: float
+    similarity_threshold_met: bool = False
+    alarm_code_match: Literal["not_requested", "exact_in_passage", "semantic_only"] = "not_requested"
+    excerpt_is_complete_chunk: bool = False
+    section_category: str | None = None
+    section_category_is_inferred: bool = True
+    documented_section_title: str | None = None
 
 
 class AlarmGuidance(BaseModel):
@@ -302,6 +321,7 @@ def manual_search_result(row: dict[str, object]) -> ManualSearchResult:
     return ManualSearchResult(
         citation=ManualCitation(
             source=row["source"],  # type: ignore[arg-type]
+            chunk_id=row.get("chunk_id"),  # type: ignore[arg-type]
             file=row["file"],  # type: ignore[arg-type]
             page=row["page"],  # type: ignore[arg-type]
             section=row["section"],  # type: ignore[arg-type]
@@ -311,6 +331,12 @@ def manual_search_result(row: dict[str, object]) -> ManualSearchResult:
         highlights=row["highlights"],  # type: ignore[arg-type]
         relevance=row["relevance"],  # type: ignore[arg-type]
         similarity=row["similarity"],  # type: ignore[arg-type]
+        similarity_threshold_met=bool(row.get("similarity_threshold_met", False)),
+        alarm_code_match=row.get("alarm_code_match", "not_requested"),  # type: ignore[arg-type]
+        excerpt_is_complete_chunk=bool(row.get("excerpt_is_complete_chunk", False)),
+        section_category=row.get("section_category"),  # type: ignore[arg-type]
+        section_category_is_inferred=bool(row.get("section_category_is_inferred", True)),
+        documented_section_title=row.get("documented_section_title"),  # type: ignore[arg-type]
     )
 
 
@@ -685,18 +711,35 @@ async def machine_telemetry_comparison(
 )
 async def machine_maintenance_tickets(
     machine_id: str,
+    response: Response,
     user: AuthContext = Depends(get_current_user),
     limit: int = Query(default=20, ge=1, le=100),
+    ticket_id: str | None = None,
+    alarm_id: str | None = None,
+    ticket_status: str | None = None,
+    ticket_type: str | None = None,
+    priority: str | None = None,
+    owner_role: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> list[MaintenanceTicketRecord]:
     """Service Agent endpoint for a machine's maintenance history."""
 
     try:
-        rows = await maintenance_tickets(machine_id.strip(), user, limit)
+        result = await search_tickets(
+            machine_id, user, limit, ticket_id=ticket_id, alarm_id=alarm_id,
+            ticket_status=ticket_status, ticket_type=ticket_type, priority=priority,
+            owner_role=owner_role, start_date=start_date, end_date=end_date,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     except MachineNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Machine not found.",
         ) from error
+    _list_headers(response, result)
+    rows = result["items"]
     return [
         MaintenanceTicketRecord(
             created_date=row["created_date"].isoformat(),
@@ -704,6 +747,26 @@ async def machine_maintenance_tickets(
         )
         for row in rows
     ]
+
+
+@app.get("/machines/{machine_id}/maintenance-tickets/{ticket_id}", response_model=MaintenanceTicketRecord)
+async def machine_ticket_detail(
+    machine_id: str, ticket_id: str, user: AuthContext = Depends(get_current_user),
+) -> MaintenanceTicketRecord:
+    """Return one ticket belonging to an authorised machine."""
+
+    try:
+        row = await ticket_detail(machine_id, user, ticket_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except MachineNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Machine not found.") from error
+    except TicketNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Ticket not found.") from error
+    return MaintenanceTicketRecord(
+        created_date=row["created_date"].isoformat(),
+        **{key: value for key, value in row.items() if key != "created_date"},
+    )
 
 
 @app.get(
@@ -717,7 +780,7 @@ async def machine_maintenance_observation(
     """Compare documented maintenance thresholds with observed productive hours."""
 
     try:
-        report = await observed_maintenance_plan(machine_id.strip(), user)
+        report = await retrieve_maintenance_observation(machine_id.strip(), user)
     except MachineNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -799,14 +862,39 @@ async def open_machine_manual(
     )
 
 
+def _list_headers(response: Response, result: dict[str, Any]) -> None:
+    """Keep list response bodies compatible while exposing completeness."""
+    response.headers["X-Total-Count"] = str(result["total_count"])
+    response.headers["X-Returned-Count"] = str(result["returned_count"])
+    response.headers["X-Is-Truncated"] = str(result["is_truncated"]).lower()
+    response.headers["X-Limit"] = str(result["limit"])
+
+
 @app.get("/orders", response_model=list[OrderRecord])
 async def company_orders(
+    response: Response,
     user: AuthContext = Depends(get_current_user),
     limit: int = Query(default=20, ge=1, le=100),
+    machine_id: str | None = None,
+    order_id: str | None = None,
+    quote_id: str | None = None,
+    order_status: str | None = None,
+    shipment_status: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> list[OrderRecord]:
     """Orders Agent endpoint; company scope comes from the authenticated user."""
 
-    rows = await orders(user, limit)
+    try:
+        result = await search_orders(
+            user, limit, machine_id=machine_id, order_id=order_id, quote_id=quote_id,
+            order_status=order_status, shipment_status=shipment_status,
+            start_date=start_date, end_date=end_date,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    _list_headers(response, result)
+    rows = result["items"]
     return [OrderRecord(**row) for row in rows]
 
 
@@ -814,9 +902,10 @@ async def company_orders(
 async def company_order_detail(order_id: str, user: AuthContext = Depends(get_current_user)) -> OrderDetail:
     """Return the approved quote content and fulfilment status of one order."""
 
-    ensure_visibility(user, "commercial")
     try:
-        detail = await get_company_order_detail(user.company_id, order_id.strip())
+        detail = await order_detail(user, order_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     except OrderNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.") from error
     revision = detail["approved_revision"]
@@ -834,12 +923,26 @@ async def company_order_detail(order_id: str, user: AuthContext = Depends(get_cu
 
 @app.get("/quotes", response_model=list[QuoteRecord])
 async def company_quotes(
+    response: Response,
     user: AuthContext = Depends(get_current_user),
     limit: int = Query(default=20, ge=1, le=100),
+    machine_id: str | None = None,
+    quote_id: str | None = None,
+    revision_status: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> list[QuoteRecord]:
     """Orders Agent endpoint for latest quote revisions and totals."""
 
-    rows = await quotes(user, limit)
+    try:
+        result = await search_quotes(
+            user, limit, machine_id=machine_id, quote_id=quote_id,
+            revision_status=revision_status, start_date=start_date, end_date=end_date,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    _list_headers(response, result)
+    rows = result["items"]
     return [
         QuoteRecord(
             valid_until=row["valid_until"].isoformat() if row["valid_until"] else None,
@@ -863,9 +966,10 @@ async def company_quote_history(
 ) -> QuoteHistory:
     """Return all authorised revisions, lines, and latest revision changes."""
 
-    ensure_visibility(user, "commercial")
     try:
-        history = await get_company_quote_history(user.company_id, quote_id.strip())
+        history = await quote_history(user, quote_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     except QuoteNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -895,6 +999,7 @@ async def company_quote_history(
             )
             for revision in history["revisions"]
         ],
+        comparison_basis=history.get("comparison_basis"),
         latest_comparison=[
             QuoteLineChange(
                 previous_price=float(change["previous_price"]) if change["previous_price"] is not None else None,

@@ -88,6 +88,83 @@ def test_manual_intent_uses_composer_with_sanitised_manual_evidence(monkeypatch:
     assert "Return plain text only" in llm.await_args.kwargs["system_prompt"]
 
 
+def test_manual_composition_discards_unvalidated_claims_and_keeps_chunks_private(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_chunk = {
+        "source": "manual", "chunk_id": "manual-p32-1", "file": "manual.pdf",
+        "page": 32, "section": "safety",
+        "content": "Disconnect the power supply before maintenance.",
+    }
+    public_evidence = {
+        "machine_id": "MCH-0001",
+        "manual_evidence": [{
+            "source": "manual", "chunk_id": "manual-p32-1", "file": "manual.pdf",
+            "page": 32, "section": "safety", "excerpt": "Disconnect the power supply before maintenance.",
+        }],
+    }
+
+    async def fake_execute(*_args: object, **_kwargs: object) -> orchestrator.EvidenceBundle:
+        result = AgentResult(
+            agent="manuals", operation="search", evidence=public_evidence,
+            private_evidence={"manual_evidence": [private_chunk]},
+        )
+        return orchestrator.EvidenceBundle(
+            [result],
+            [{"agent": "manuals", "operation": "search", "evidence": public_evidence, "sources": [], "warnings": []}],
+            {},
+        )
+
+    structured = AsyncMock(return_value=(
+        '{"claims": ['
+        '{"claim":"The manual requires power isolation before maintenance.",'
+        '"chunk_id":"manual-p32-1",'
+        '"supporting_quote":"Disconnect the power supply before maintenance."},'
+        '{"claim":"The manual documents a valve failure.",'
+        '"chunk_id":"manual-p32-1",'
+        '"supporting_quote":"A valve failure causes this alarm."}'
+        ']}'
+    ))
+    monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
+    monkeypatch.setattr(orchestrator, "generate_structured_reply", structured)
+    plain = AsyncMock()
+    monkeypatch.setattr(orchestrator, "generate_chat_reply", plain)
+
+    result = asyncio.run(orchestrator.handle_chat(
+        "Find safety instructions in the manual.", AuthContext("USR-001", "CMP-001", "full"), "MCH-0001",
+    ))
+
+    assert result.answer == "The manual requires power isolation before maintenance."
+    assert result.manual_evidence == public_evidence["manual_evidence"]
+    assert "content" not in result.manual_evidence[0]
+    assert "Disconnect the power supply before maintenance." in structured.await_args.args[0]
+    plain.assert_not_awaited()
+
+
+def test_manual_composition_uses_a_safe_fallback_for_invalid_structured_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    private_chunk = {
+        "source": "manual", "chunk_id": "manual-p1-1", "file": "manual.pdf",
+        "page": 1, "section": "safety", "content": "Wear protective gloves.",
+    }
+
+    async def fake_execute(*_args: object, **_kwargs: object) -> orchestrator.EvidenceBundle:
+        return orchestrator.EvidenceBundle(
+            [AgentResult(
+                agent="manuals", operation="search", evidence={"manual_evidence": []},
+                private_evidence={"manual_evidence": [private_chunk]},
+            )], [], {},
+        )
+
+    monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
+    monkeypatch.setattr(orchestrator, "generate_structured_reply", AsyncMock(return_value="not json"))
+
+    result = asyncio.run(orchestrator.handle_chat(
+        "Find safety instructions in the manual.", AuthContext("USR-001", "CMP-001", "full"), "MCH-0001",
+    ))
+
+    assert result.answer == "I found authorised manual evidence, but could not generate a validated summary. Please review the sources below."
+
+
 def test_data_agent_keeps_structured_evidence_for_the_chat(monkeypatch: pytest.MonkeyPatch) -> None:
     evidence = {
         "machine_id": "MCH-0001",
@@ -282,30 +359,35 @@ def test_alarm_guidance_uses_composer_with_multi_agent_evidence(monkeypatch: pyt
 
 
 def test_maintenance_due_uses_composer_with_the_observation_scope(monkeypatch: pytest.MonkeyPatch) -> None:
-    observation = {
+    productive_hours = {
         "machine_id": "MCH-0001",
         "observed_productive_hours": 514.26,
         "first_snapshot": datetime(2026, 7, 6, 0, 0),
         "last_snapshot": datetime(2026, 8, 4, 23, 0),
         "snapshot_count": 720,
-        "documented_threshold_hours": [40, 500, 1000],
-        "reached_threshold_hours": [40, 500],
-        "next_threshold_hours": 1000,
         "scope_note": "Observed telemetry, not a lifetime counter.",
     }
-    evidence = {"maintenance_observation": observation}
+    requirements = {
+        "machine_id": "MCH-0001",
+        "requirements": [
+            {"interval_hours": 40, "citation": {"chunk_id": "p40"}},
+            {"interval_hours": 500, "citation": {"chunk_id": "p500"}},
+            {"interval_hours": 1000, "citation": {"chunk_id": "p1000"}},
+        ],
+        "scope_note": "Documentary evidence only.",
+    }
 
     async def fake_execute(*_args: object, **_kwargs: object) -> orchestrator.EvidenceBundle:
         return orchestrator.EvidenceBundle(
-            [AgentResult(agent="service", operation="observed_maintenance_plan", evidence=evidence, structured_data=evidence)],
-            [{
-                "agent": "service",
-                "operation": "observed_maintenance_plan",
-                "evidence": evidence,
-                "sources": [],
-                "warnings": [],
-            }],
-            evidence,
+            [
+                AgentResult(agent="iot", operation="observed_productive_hours", evidence=productive_hours),
+                AgentResult(agent="manuals", operation="maintenance_requirements", evidence=requirements),
+            ],
+            [
+                {"agent": "iot", "operation": "observed_productive_hours", "evidence": productive_hours, "sources": [], "warnings": []},
+                {"agent": "manuals", "operation": "maintenance_requirements", "evidence": requirements, "sources": [], "warnings": []},
+            ],
+            {"productive_hours_observation": productive_hours, "maintenance_requirements": requirements},
         )
 
     llm = AsyncMock(return_value="The available telemetry window contains 514.26 productive hours.")
@@ -320,12 +402,25 @@ def test_maintenance_due_uses_composer_with_the_observation_scope(monkeypatch: p
         )
     )
 
-    assert result.agent == ["service"]
+    assert result.agent == ["iot", "manuals"]
     assert result.answer == "The available telemetry window contains 514.26 productive hours."
     assert result.manual_evidence is None
-    assert result.structured_data == {"maintenance_observation": observation}
-    assert observation["scope_note"] in llm.await_args.args[0]
+    assert result.structured_data["maintenance_observation"]["reached_threshold_hours"] == [40, 500]
+    assert result.structured_data["maintenance_observation"]["next_threshold_hours"] == 1000
+    assert requirements["scope_note"] in llm.await_args.args[0]
     assert "not as a lifetime counter" in llm.await_args.kwargs["system_prompt"]
+
+
+def test_maintenance_due_plan_uses_iot_and_manuals_not_service() -> None:
+    plan = orchestrator._deterministic_plan(
+        "maintenance_due", "What maintenance is due after the observed operating hours?",
+    )
+
+    assert plan is not None
+    assert [(request.agent, request.operation) for request in plan.requests] == [
+        ("iot", "observed_productive_hours"),
+        ("manuals", "maintenance_requirements"),
+    ]
 
 
 def test_planner_handles_diagnostics_as_a_generic_multi_agent_workflow(monkeypatch: pytest.MonkeyPatch) -> None:

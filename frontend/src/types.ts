@@ -76,8 +76,11 @@ export type ChatData = {
   maintenance_observation?: MaintenanceObservation;
 };
 export type ManualSearchResult = {
-  citation: { source: "manual"; file: string; page: number; section: string };
+  citation: { source: "manual"; chunk_id?: string | null; file: string; page: number; section: string };
   excerpt: string; title: string; highlights: string[]; relevance: number; similarity: number;
+  similarity_threshold_met?: boolean; alarm_code_match?: "not_requested" | "exact_in_passage" | "semantic_only";
+  excerpt_is_complete_chunk?: boolean; section_category?: string | null;
+  section_category_is_inferred?: boolean; documented_section_title?: string | null;
 };
 export type ChatAgent = "iot" | "manuals" | "service" | "orders";
 export type ChatMessage = { id: number; role: "user" | "assistant"; content: string; agent?: ChatAgent[] | null; sources?: ManualSearchResult[]; data?: ChatData | null };

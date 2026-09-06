@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Any
 
+from core.alarm_codes import normalise_alarm_code
 from core.auth import AuthContext
 from core.data_access import (
     authorize_machine,
@@ -61,6 +62,7 @@ async def recent_alarms(
 
     _validate_period(start_time, end_time)
     _validate_alarm_filters(severity, alarm_status)
+    alarm_code = normalise_alarm_code(alarm_code) if alarm_code is not None else None
     await authorize_machine(machine_id, user, domain="operational")
     return await get_recent_alarms(
         machine_id, limit, start_time=start_time, end_time=end_time,
@@ -82,6 +84,7 @@ async def count_alarms(
 
     _validate_period(start_time, end_time)
     _validate_alarm_filters(severity, alarm_status)
+    alarm_code = normalise_alarm_code(alarm_code) if alarm_code is not None else None
     await authorize_machine(machine_id, user, domain="operational")
     count = await count_alarm_events(
         machine_id, start_time=start_time, end_time=end_time,
@@ -113,6 +116,7 @@ async def alarm_summary(
 
     _validate_period(start_time, end_time)
     _validate_alarm_filters(severity, alarm_status)
+    alarm_code = normalise_alarm_code(alarm_code) if alarm_code is not None else None
     await authorize_machine(machine_id, user, domain="operational")
     patterns = await summarize_alarm_events(
         machine_id, limit, start_time=start_time, end_time=end_time,
@@ -156,10 +160,25 @@ async def machine_configuration(machine_id: str, user: AuthContext) -> dict[str,
 
 
 async def observed_productive_hours(machine_id: str, user: AuthContext) -> dict[str, Any]:
-    """Return the productive-hour observation available in local telemetry."""
+    """Return productive hours across all available hourly snapshots, after authorisation.
+
+    PostgreSQL sums uptime_percentage / 100 under the dataset's one-hour snapshot
+    convention. This does not establish lifetime hours or hours since maintenance.
+    No manual lookup or maintenance interpretation is performed here.
+    """
 
     await authorize_machine(machine_id, user, domain="operational")
-    return {"machine_id": machine_id, **await get_observed_productive_hours(machine_id)}
+    window = await get_observed_productive_hours(machine_id)
+    return {
+        "machine_id": machine_id,
+        **window,
+        "scope_note": (
+            "Productive hours are calculated from the available hourly telemetry snapshots; "
+            "they are not the machine's lifetime hour counter or hours since its last maintenance. "
+            "The first and last snapshot timestamps do not establish continuous coverage. "
+            "A snapshot_count of zero means no telemetry is available, not confirmed zero operation."
+        ),
+    }
 
 
 async def company_machines(user: AuthContext) -> list[dict[str, Any]]:

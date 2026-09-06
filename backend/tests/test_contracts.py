@@ -129,7 +129,7 @@ def test_registry_rejects_unknown_operations_and_operation_specific_parameters()
         ("iot", "machine_configuration", True),
         ("iot", "observed_productive_hours", True),
         ("iot", "company_machines", False),
-        ("manuals", "maintenance_intervals", True),
+        ("manuals", "maintenance_requirements", True),
     ]:
         definition, _ = OPERATION_REGISTRY.validate(AgentRequest(agent=agent, operation=operation))
         assert definition.requires_machine_context is requires_machine
@@ -199,3 +199,33 @@ def test_registry_delegates_to_raw_agent_then_formats_the_result_in_core(monkeyp
     agent_operation.assert_awaited_once()
     assert agent_operation.await_args.args[:3] == ("MCH-0001", AuthContext("USR-001", "CMP-001", "full"), 5)
     assert agent_operation.await_args.kwargs["alarm_code"] is None
+
+
+def test_registry_preserves_manual_alarm_code_match_metadata(monkeypatch) -> None:
+    agent_operation = AsyncMock(return_value={
+        "manual_evidence": [{
+            "source": "manual", "chunk_id": "manual-p32-1", "file": "manual.pdf",
+            "page": 32, "section": "troubleshooting", "content": "AL017_LOW_AIR_PRESSURE",
+            "excerpt": "AL017_LOW_AIR_PRESSURE", "title": "Manual excerpt", "highlights": ["alarm"],
+            "relevance": 0.8, "similarity": 0.7, "similarity_threshold_met": True,
+            "alarm_code_match": "exact_in_passage", "excerpt_is_complete_chunk": True,
+            "section_category": "troubleshooting", "section_category_is_inferred": True,
+            "documented_section_title": None,
+        }],
+        "requested_alarm_codes": ["AL017_LOW_AIR_PRESSURE"],
+        "exact_alarm_code_matches": ["AL017_LOW_AIR_PRESSURE"],
+        "unmatched_alarm_codes": [],
+        "alarm_code_match_status": "exact_manual_match",
+    })
+    monkeypatch.setattr(operation_registry, "search_with_match_status", agent_operation)
+    user = AuthContext("USR-001", "CMP-001", "full")
+
+    result = asyncio.run(operation_registry.OPERATION_REGISTRY.execute(
+        AgentRequest(agent="manuals", operation="search", parameters={"query": "AL017_LOW_AIR_PRESSURE"}),
+        OperationContext(user=user, machine_id="MCH-0001"),
+    ))
+
+    assert result.evidence["alarm_code_match_status"] == "exact_manual_match"
+    assert result.evidence["manual_evidence"][0]["chunk_id"] == "manual-p32-1"
+    assert "content" not in result.evidence["manual_evidence"][0]
+    agent_operation.assert_awaited_once_with("MCH-0001", "AL017_LOW_AIR_PRESSURE", user, 5)

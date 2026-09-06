@@ -26,14 +26,14 @@ from agents.iot import (
     telemetry,
     telemetry_summary,
 )
-from agents.manuals import maintenance_intervals, search
+from agents.manuals import maintenance_requirements, search_with_match_status
 from agents.orders import (
     order_detail,
     orders,
     quote_history,
     quotes,
 )
-from agents.service import maintenance_tickets, observed_maintenance_plan
+from agents.service import maintenance_tickets
 from core.alarm_codes import alarm_meaning, normalise_alarm_code
 from core.auth import AuthContext
 from core.contracts import AgentName, AgentRequest, AgentResult
@@ -129,8 +129,8 @@ class CompareTelemetryPeriodsParameters(OperationParameters):
 
 
 class ManualSearchParameters(OperationParameters):
-    query: str = Field(min_length=1, max_length=4_000)
-    limit: int = Field(default=5, ge=1, le=20)
+    query: str = Field(min_length=1, max_length=1_000)
+    limit: int = Field(default=5, ge=1, le=10)
 
 
 class MaintenanceTicketsParameters(OperationParameters):
@@ -327,19 +327,27 @@ async def _company_machines(parameters: OperationParameters, context: OperationC
 
 async def _search_manuals(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, ManualSearchParameters)
-    matches = await search(_machine(context), parameters.query, context.user, parameters.limit)
-    return manual_search_result(_machine(context), matches)
+    result = await search_with_match_status(
+        _machine(context), parameters.query, context.user, parameters.limit,
+    )
+    metadata = {
+        key: result[key]
+        for key in (
+            "requested_alarm_codes", "exact_alarm_code_matches",
+            "unmatched_alarm_codes", "alarm_code_match_status",
+        )
+    }
+    return manual_search_result(_machine(context), result["manual_evidence"], search_metadata=metadata)
 
 
-async def _maintenance_intervals(parameters: OperationParameters, context: OperationContext) -> AgentResult:
+async def _maintenance_requirements(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     del parameters
     machine_id = _machine(context)
-    thresholds = await maintenance_intervals(machine_id, context.user)
-    evidence = {"machine_id": machine_id, "documented_threshold_hours": thresholds}
-    warnings = [] if thresholds else ["No documented working-hour maintenance intervals were found."]
+    result = await maintenance_requirements(machine_id, context.user)
+    warnings = [] if result["requirements"] else ["No documented working-hour maintenance intervals were found."]
     return agent_result(
-        "manuals", "maintenance_intervals", evidence,
-        structured_data={"maintenance_intervals": evidence}, warnings=warnings,
+        "manuals", "maintenance_requirements", result,
+        structured_data={"maintenance_requirements": result}, warnings=warnings,
     )
 
 
@@ -349,13 +357,6 @@ async def _maintenance_tickets(parameters: OperationParameters, context: Operati
     tickets = await maintenance_tickets(machine_id, context.user, parameters.limit)
     evidence = {"machine_id": machine_id, "maintenance_tickets": tickets}
     return agent_result("service", "maintenance_tickets", evidence, structured_data=evidence)
-
-
-async def _observed_maintenance_plan(parameters: OperationParameters, context: OperationContext) -> AgentResult:
-    del parameters
-    observation = await observed_maintenance_plan(_machine(context), context.user)
-    evidence = {"maintenance_observation": observation}
-    return agent_result("service", "observed_maintenance_plan", evidence, structured_data=evidence)
 
 
 async def _orders(parameters: OperationParameters, context: OperationContext) -> AgentResult:
@@ -400,9 +401,8 @@ OPERATION_REGISTRY = OperationRegistry(
         OperationDefinition("iot", "observed_productive_hours", OperationParameters, True, _observed_productive_hours, "Return productive hours and time coverage observed in available machine telemetry."),
         OperationDefinition("iot", "company_machines", OperationParameters, False, _company_machines, "List the authenticated company's available machines and their identity details."),
         OperationDefinition("manuals", "search", ManualSearchParameters, True, _search_manuals, "Find relevant machine-manual excerpts for procedures, safety guidance, configuration, troubleshooting, or technical requirements."),
-        OperationDefinition("manuals", "maintenance_intervals", OperationParameters, True, _maintenance_intervals, "Extract documented working-hour maintenance intervals from the selected machine's manual."),
+        OperationDefinition("manuals", "maintenance_requirements", OperationParameters, True, _maintenance_requirements, "Return cited working-hour and operating-hour maintenance requirements from the selected machine's manual."),
         OperationDefinition("service", "maintenance_tickets", MaintenanceTicketsParameters, True, _maintenance_tickets, "Retrieve maintenance tickets and their statuses for the selected machine."),
-        OperationDefinition("service", "observed_maintenance_plan", OperationParameters, True, _observed_maintenance_plan, "Compare documented maintenance thresholds with productive hours observed in available telemetry."),
         OperationDefinition("orders", "orders", ListRecordsParameters, False, _orders, "Retrieve the authenticated company’s recent orders and shipment statuses."),
         OperationDefinition("orders", "quotes", ListRecordsParameters, False, _quotes, "Retrieve the authenticated company’s recent quotes, revisions, validity, and totals."),
         OperationDefinition("orders", "order_detail", OrderDetailParameters, False, _order_detail, "Retrieve the authenticated company's detail for one order, including fulfilment and approved quote content."),

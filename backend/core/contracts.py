@@ -91,6 +91,7 @@ class AgentResult(_StrictContract):
     agent: AgentName
     operation: str = Field(min_length=1, max_length=100, pattern=r"^[a-z][a-z0-9_]*$")
     evidence: dict[str, Any] = Field(default_factory=dict)
+    private_evidence: dict[str, Any] = Field(default_factory=dict, exclude=True, repr=False)
     sources: list[EvidenceSource] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     structured_data: dict[str, Any] | None = None
