@@ -77,7 +77,7 @@ def test_profile_and_order_detail_endpoints(client: TestClient, monkeypatch: pyt
     )
     monkeypatch.setattr(
         main,
-        "get_company_order_detail",
+        "order_detail",
         AsyncMock(return_value={
             "order_id": "ORD-1", "quote_id": "QTE-1", "order_status": "Confirmed",
             "shipment_status": "Ready for shipment", "currency": "EUR",
@@ -147,8 +147,8 @@ def test_operational_and_service_endpoints(client: TestClient, monkeypatch: pyte
     )
     monkeypatch.setattr(
         main,
-        "maintenance_tickets",
-        AsyncMock(return_value=[{"ticket_id": "TCK-1", "alarm_id": "ALM-1", "ticket_type": "Remote troubleshooting", "ticket_status": "Open", "priority": "High", "created_date": timestamp, "owner_role": "technician"}]),
+        "search_tickets",
+        AsyncMock(return_value={"items": [{"ticket_id": "TCK-1", "alarm_id": "ALM-1", "ticket_type": "Remote troubleshooting", "ticket_status": "Open", "priority": "High", "created_date": timestamp, "owner_role": "Maintenance Man"}], "total_count": 1, "returned_count": 1, "is_truncated": False, "limit": 5}),
     )
 
     alarms = client.get("/machines/MCH-0001/alarms?limit=5")
@@ -259,22 +259,38 @@ def test_troubleshooting_response_includes_manual_excerpt(client: TestClient, mo
 
 
 def test_orders_and_quotes(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(main, "orders", AsyncMock(return_value=[{"order_id": "ORD-1", "quote_id": "Q-1", "order_status": "Confirmed", "shipment_status": "Ready for shipment"}]))
-    monkeypatch.setattr(main, "quotes", AsyncMock(return_value=[{"quote_id": "Q-1", "valid_until": None, "validity_status": "Unknown", "revision_number": 2, "revision_status": "Approved", "discount_rate": 0.1, "line_total": 1250.5}]))
-
-    orders = client.get("/orders")
-    quotes = client.get("/quotes")
-
+    metadata = {"total_count": 5, "returned_count": 1, "is_truncated": True, "limit": 1}
+    order_search = AsyncMock(return_value=metadata | {"items": [{
+        "order_id": "ORD-1", "quote_id": "Q-1", "order_status": "Confirmed",
+        "shipment_status": "Ready for shipment",
+    }]})
+    quote_search = AsyncMock(return_value=metadata | {"items": [{
+        "quote_id": "Q-1", "valid_until": None, "validity_status": "Unknown",
+        "revision_number": 2, "revision_status": "Approved", "discount_rate": 0.1,
+        "line_total": 1250.5, "currency": "EUR",
+    }]})
+    monkeypatch.setattr(main, "search_orders", order_search)
+    monkeypatch.setattr(main, "search_quotes", quote_search)
+    orders = client.get("/orders?limit=1&order_status=Confirmed&start_date=2026-01-01")
+    quotes = client.get("/quotes?limit=1&revision_status=Approved")
     assert orders.status_code == quotes.status_code == 200
-    assert orders.json()[0]["shipment_status"] == "Ready for shipment"
+    assert orders.headers["X-Total-Count"] == "5"
+    assert orders.headers["X-Is-Truncated"] == "true"
+    assert order_search.await_args.kwargs["start_date"] == date(2026, 1, 1)
     assert quotes.json()[0]["line_total"] == 1250.5
-    assert quotes.json()[0]["validity_status"] == "Unknown"
+    assert quotes.json()[0]["currency"] == "EUR"
+
+
+@pytest.mark.parametrize("path", ["/orders?order_status=Banana", "/quotes?revision_status=Banana",
+                                    "/orders?limit=0", "/quotes?start_date=2026-02-01&end_date=2026-01-01"])
+def test_commercial_invalid_filters_return_422(client: TestClient, path: str) -> None:
+    assert client.get(path).status_code == 422
 
 
 def test_quote_history_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         main,
-        "get_company_quote_history",
+        "quote_history",
         AsyncMock(
             return_value={
                 "quote_id": "QTE-2025-0001",

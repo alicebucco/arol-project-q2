@@ -9,6 +9,7 @@ from core.data_access import (
     authorize_machine,
     count_alarm_events,
     get_machine_configuration_profile,
+    get_observed_productive_hours,
     get_recent_alarms,
     get_telemetry_snapshots,
     summarize_alarm_events,
@@ -245,4 +246,25 @@ async def compare_telemetry_periods(
         "first_period": {"start_time": first_start, "end_time": first_end, **first},
         "second_period": {"start_time": second_start, "end_time": second_end, **second},
         "changes": changes,
+    }
+
+
+async def observed_productive_hours(machine_id: str, user: AuthContext) -> dict[str, Any]:
+    """Return productive hours across all available hourly snapshots, after authorisation.
+
+    PostgreSQL sums uptime_percentage / 100 under the dataset's one-hour snapshot
+    convention. This does not establish lifetime hours or hours since maintenance.
+    No manual lookup or maintenance interpretation is performed here.
+    """
+    await authorize_machine(machine_id, user, domain="operational")
+    window = await get_observed_productive_hours(machine_id)
+    return {
+        "machine_id": machine_id,
+        **window,
+        "scope_note": (
+            "Productive hours are calculated from the available hourly telemetry snapshots; "
+            "they are not the machine's lifetime hour counter or hours since its last maintenance. "
+            "The first and last snapshot timestamps do not establish continuous coverage. "
+            "A snapshot_count of zero means no telemetry is available, not confirmed zero operation."
+        ),
     }

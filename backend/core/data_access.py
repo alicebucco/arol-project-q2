@@ -13,6 +13,10 @@ class MachineNotFoundError(LookupError):
     """The requested machine identifier does not exist."""
 
 
+class TicketNotFoundError(LookupError):
+    """The requested ticket is absent from the authorised machine."""
+
+
 class QuoteNotFoundError(LookupError):
     """The requested quote is absent or outside the user's company."""
 
@@ -435,34 +439,44 @@ async def get_manual_contents(machine_id: str) -> list[str]:
 
 
 async def get_maintenance_tickets(machine_id: str, limit: int) -> list[dict[str, Any]]:
-    """Return recent maintenance tickets for an already-authorized machine."""
+    """Compatibility list for an already-authorised machine."""
+    return (await search_maintenance_tickets(machine_id, limit))["items"]
 
+
+async def search_maintenance_tickets(machine_id: str, limit: int, **filters: Any) -> dict[str, Any]:
+    """Select and count tickets in one snapshot; caller must authorise the machine."""
+    clauses = ["machine_id = %s"]
+    parameters: list[Any] = [machine_id]
+    for field in ("ticket_id", "alarm_id", "ticket_status", "ticket_type", "priority", "owner_role"):
+        if filters.get(field) is not None:
+            clauses.append(f"{field} = %s")
+            parameters.append(filters[field])
+    for name, operator in (("start_date", ">="), ("end_date", "<=")):
+        if filters.get(name) is not None:
+            clauses.append(f"created_date {operator} %s")
+            parameters.append(filters[name])
+    where_sql = " AND ".join(clauses)
+    fields = ("ticket_id", "alarm_id", "ticket_type", "ticket_status", "priority", "created_date", "owner_role")
     async with connection() as conn:
         async with conn.cursor() as cursor:
             await cursor.execute(
-                """
-                SELECT ticket_id, alarm_id, ticket_type, ticket_status, priority,
-                       created_date, owner_role
-                FROM maintenance_tickets
-                WHERE machine_id = %s
-                ORDER BY created_date DESC
-                LIMIT %s
-                """,
-                (machine_id, limit),
+                f"""WITH filtered AS (
+                    SELECT {', '.join(fields)} FROM maintenance_tickets WHERE {where_sql}
+                )
+                SELECT totals.total_count, {', '.join('page.' + field for field in fields)}
+                FROM (SELECT COUNT(*) AS total_count FROM filtered) AS totals
+                LEFT JOIN LATERAL (
+                    SELECT * FROM filtered ORDER BY created_date DESC, ticket_id DESC LIMIT %s
+                ) AS page ON TRUE
+                ORDER BY page.created_date DESC, page.ticket_id DESC""",
+                (*parameters, limit),
             )
             rows = await cursor.fetchall()
-    return [
-        {
-            "ticket_id": row[0],
-            "alarm_id": row[1],
-            "ticket_type": row[2],
-            "ticket_status": row[3],
-            "priority": row[4],
-            "created_date": row[5],
-            "owner_role": row[6],
-        }
-        for row in rows
-    ]
+    total = int(rows[0][0])
+    items = [dict(zip(fields, row[1:])) for row in rows if row[1] is not None]
+    return {"machine_id": machine_id, "items": items, "total_count": total,
+            "returned_count": len(items), "is_truncated": total > len(items),
+            "limit": limit, "filters": filters, "date_field": "created_date"}
 
 
 def vector_literal(vector: list[float]) -> str:
@@ -481,7 +495,7 @@ async def search_manual_chunks(
         async with conn.cursor() as cursor:
             await cursor.execute(
                 """
-                SELECT source_file, page, section, content,
+                SELECT chunk_id, source_file, page, section, content,
                        1 - (embedding <=> %s::vector) AS similarity
                 FROM manual_chunks
                 WHERE machine_id = %s
@@ -494,11 +508,80 @@ async def search_manual_chunks(
     return [
         {
             "source": "manual",
-            "file": row[0],
-            "page": row[1],
-            "section": row[2],
-            "content": row[3],
-            "similarity": float(row[4]),
+            "chunk_id": row[0],
+            "file": row[1],
+            "page": row[2],
+            "section": row[3],
+            "content": row[4],
+            "similarity": float(row[5]),
+        }
+        for row in rows
+    ]
+
+
+async def find_manual_alarm_code_matches(machine_id: str, alarm_codes: list[str]) -> list[str]:
+    """Find literal alarm codes across one authorized machine's full index.
+
+    Alarm codes come from the agent's strict pattern. The boundary expression
+    prevents a shorter code from matching inside a longer alphanumeric token.
+    """
+
+    if not alarm_codes:
+        return []
+    async with connection() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                """
+                SELECT requested.code
+                FROM unnest(%s::text[]) AS requested(code)
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM manual_chunks
+                    WHERE machine_id = %s
+                      AND UPPER(content) ~ (
+                          '(^|[^A-Z0-9_])' || requested.code || '([^A-Z0-9_]|$)'
+                      )
+                )
+                ORDER BY requested.code
+                """,
+                (alarm_codes, machine_id),
+            )
+            rows = await cursor.fetchall()
+    return [row[0] for row in rows]
+
+
+async def get_manual_maintenance_chunks(machine_id: str) -> list[dict[str, Any]]:
+    """Return indexed chunks that explicitly state a working-hour interval.
+
+    The caller authorizes the machine. Parsing the documented interval and its
+    surrounding text remains in the Manuals Agent, where provenance is retained.
+    """
+
+    async with connection() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                """
+                SELECT chunk_id, source_file, page, section, chunk_index, content
+                FROM manual_chunks
+                WHERE machine_id = %s
+                  AND content ~* (
+                      '(every|each)[[:space:]]+[0-9][0-9,[:space:]]*'
+                      '[[:space:]]+(working|operating)[[:space:]]+hours'
+                  )
+                ORDER BY source_file, page, chunk_index
+                """,
+                (machine_id,),
+            )
+            rows = await cursor.fetchall()
+    return [
+        {
+            "source": "manual",
+            "chunk_id": row[0],
+            "file": row[1],
+            "page": row[2],
+            "section": row[3],
+            "chunk_index": row[4],
+            "content": row[5],
         }
         for row in rows
     ]
@@ -524,30 +607,8 @@ async def manual_file_belongs_to_machine(machine_id: str, source_file: str) -> b
 
 
 async def get_company_orders(company_id: str, limit: int) -> list[dict[str, Any]]:
-    """Return orders belonging to one company."""
-
-    async with connection() as conn:
-        async with conn.cursor() as cursor:
-            await cursor.execute(
-                """
-                SELECT order_id, quote_id, order_status, shipment_status
-                FROM orders
-                WHERE company_id = %s
-                ORDER BY order_id DESC
-                LIMIT %s
-                """,
-                (company_id, limit),
-            )
-            rows = await cursor.fetchall()
-    return [
-        {
-            "order_id": row[0],
-            "quote_id": row[1],
-            "order_status": row[2],
-            "shipment_status": row[3],
-        }
-        for row in rows
-    ]
+    """Compatibility list for an already-authorised company."""
+    return (await search_company_commercial(company_id, "orders", limit))["items"]
 
 
 async def get_company_machines(company_id: str) -> list[dict[str, Any]]:
@@ -616,7 +677,7 @@ async def get_company_order_detail(company_id: str, order_id: str) -> dict[str, 
                 SELECT o.order_id, o.quote_id, o.order_status, o.shipment_status,
                        q.source_data ->> 'currency'
                 FROM orders AS o
-                JOIN quotes AS q ON q.quote_id = o.quote_id
+                JOIN quotes AS q ON q.quote_id = o.quote_id AND q.company_id = o.company_id
                 WHERE o.company_id = %s AND o.order_id = %s
                 """,
                 (company_id, order_id),
@@ -673,52 +734,98 @@ async def get_company_order_detail(company_id: str, order_id: str) -> dict[str, 
 
 
 async def get_company_quotes(company_id: str, limit: int) -> list[dict[str, Any]]:
-    """Return quotes with their latest revision and net line total."""
+    """Compatibility list for an already-authorised company."""
+    return (await search_company_commercial(company_id, "quotes", limit))["items"]
 
+
+async def search_company_commercial(
+    company_id: str, kind: str, limit: int, **filters: Any,
+) -> dict[str, Any]:
+    """Count and select filtered documents in one PostgreSQL statement/snapshot.
+
+    Machine filters select documents, never remove lines from their totals.
+    Orders use the highest approved revision; quotes use the current revision.
+    Caller must authorise commercial access before invoking this function.
+    """
+    if kind not in {"orders", "quotes"}:
+        raise ValueError("Unsupported commercial document kind.")
+    is_order = kind == "orders"
+    alias = "o" if is_order else "q"
+    fields = (["order_id", "quote_id", "order_status", "shipment_status", "currency", "order_date"]
+              if is_order else ["quote_id", "valid_until", "revision_number", "revision_status",
+                                "discount_rate", "line_total", "currency", "created_at"])
+    clauses = [f"{alias}.company_id = %s"]
+    parameters: list[Any] = [company_id]
+    columns = ({"order_id": "o.order_id", "quote_id": "o.quote_id",
+                "order_status": "o.order_status", "shipment_status": "o.shipment_status"}
+               if is_order else {"quote_id": "q.quote_id", "revision_status": "qr.revision_status"})
+    for name, column in columns.items():
+        if filters.get(name) is not None:
+            clauses.append(f"{column} = %s")
+            parameters.append(filters[name])
+    date_field = "order_date" if is_order else "created_at"
+    for name, operator in (("start_date", ">="), ("end_date", "<=")):
+        if filters.get(name) is not None:
+            clauses.append(f"NULLIF({alias}.source_data ->> '{date_field}', '')::date {operator} %s")
+            parameters.append(filters[name])
+    if filters.get("machine_id") is not None:
+        clauses.append("""EXISTS (
+            SELECT 1 FROM quote_lines AS ml
+            JOIN machines AS m ON m.machine_id = ml.machine_id
+            WHERE ml.quote_revision_id = qr.quote_revision_id
+              AND ml.machine_id = %s AND m.company_id = %s
+        )""")
+        parameters.extend([filters["machine_id"], company_id])
+    where_sql = " AND ".join(clauses)
+    if is_order:
+        selection = """o.order_id, o.quote_id, o.order_status, o.shipment_status,
+            o.source_data ->> 'currency' AS currency,
+            NULLIF(o.source_data ->> 'order_date', '')::date AS order_date"""
+        source = """orders AS o LEFT JOIN LATERAL (
+            SELECT r.quote_revision_id FROM quote_revisions AS r
+            JOIN quotes AS q ON q.quote_id = r.quote_id AND q.company_id = o.company_id
+            WHERE r.quote_id = o.quote_id AND r.revision_status = 'Approved'
+            ORDER BY r.revision_number DESC LIMIT 1
+        ) AS qr ON TRUE"""
+    else:
+        selection = """q.quote_id, q.valid_until, qr.revision_number, qr.revision_status,
+            qr.discount_rate, COALESCE((SELECT SUM(price) FROM quote_lines
+                WHERE quote_revision_id = qr.quote_revision_id), 0) AS line_total,
+            q.source_data ->> 'currency' AS currency,
+            NULLIF(q.source_data ->> 'created_at', '')::date AS created_at"""
+        source = """quotes AS q LEFT JOIN LATERAL (
+            SELECT quote_revision_id, revision_number, revision_status, discount_rate
+            FROM quote_revisions WHERE quote_id = q.quote_id
+            ORDER BY revision_number DESC LIMIT 1
+        ) AS qr ON TRUE"""
+    selected_fields = ", ".join(f"page.{field}" for field in fields)
     async with connection() as conn:
         async with conn.cursor() as cursor:
             await cursor.execute(
-                """
-                SELECT q.quote_id, q.valid_until,
-                       qr.revision_number, qr.revision_status,
-                       qr.discount_rate,
-                       COALESCE(SUM(ql.price), 0) AS line_total
-                FROM quotes AS q
+                f"""WITH filtered AS (
+                    SELECT {selection} FROM {source} WHERE {where_sql}
+                )
+                SELECT totals.total_count, {selected_fields}
+                FROM (SELECT COUNT(*) AS total_count FROM filtered) AS totals
                 LEFT JOIN LATERAL (
-                    SELECT revision_number, revision_status, discount_rate,
-                           quote_revision_id
-                    FROM quote_revisions
-                    WHERE quote_id = q.quote_id
-                    ORDER BY revision_number DESC
-                    LIMIT 1
-                ) AS qr ON TRUE
-                LEFT JOIN quote_lines AS ql
-                    ON ql.quote_revision_id = qr.quote_revision_id
-                WHERE q.company_id = %s
-                GROUP BY q.quote_id, q.valid_until, qr.revision_number,
-                         qr.revision_status, qr.discount_rate
-                ORDER BY q.quote_id DESC
-                LIMIT %s
-                """,
-                (company_id, limit),
+                    SELECT * FROM filtered ORDER BY {fields[0]} DESC LIMIT %s
+                ) AS page ON TRUE
+                ORDER BY page.{fields[0]} DESC""",
+                (*parameters, limit),
             )
             rows = await cursor.fetchall()
-    return [
-        {
-            "quote_id": row[0],
-            "valid_until": row[1],
-            "validity_status": quote_validity_status(row[1]),
-            "revision_number": row[2],
-            "revision_status": row[3],
-            "discount_rate": row[4],
-            "line_total": row[5],
-        }
-        for row in rows
-    ]
+    total = int(rows[0][0])
+    items = [dict(zip(fields, row[1:])) for row in rows if row[1] is not None]
+    if not is_order:
+        for item in items:
+            item["validity_status"] = quote_validity_status(item["valid_until"])
+    return {"items": items, "total_count": total, "returned_count": len(items),
+            "is_truncated": total > len(items), "limit": limit, "filters": filters,
+            "company_id": company_id, "date_field": date_field}
 
 
 def _line_key(line: dict[str, Any]) -> tuple[str, str]:
-    """Use the only stable business identity available across quote revisions."""
+    """Match by machine and normalised description; this is not a stable line ID."""
 
     return (str(line["machine_id"] or ""), str(line["description"] or "").casefold().strip())
 
@@ -729,19 +836,33 @@ def _compare_quote_lines(
 ) -> list[dict[str, Any]]:
     """Describe line additions, removals and net-price changes across revisions."""
 
-    previous_by_key = {_line_key(line): line for line in previous_lines}
-    current_by_key = {_line_key(line): line for line in current_lines}
+    previous_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    current_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for line in previous_lines:
+        previous_by_key.setdefault(_line_key(line), []).append(line)
+    for line in current_lines:
+        current_by_key.setdefault(_line_key(line), []).append(line)
     changes: list[dict[str, Any]] = []
     for key in sorted(set(previous_by_key) | set(current_by_key)):
-        previous = previous_by_key.get(key)
-        current = current_by_key.get(key)
+        previous_group = previous_by_key.get(key, [])
+        current_group = current_by_key.get(key, [])
+        if len(previous_group) > 1 or len(current_group) > 1:
+            changes.append({
+                "change": "ambiguous", "machine_id": key[0] or None,
+                "description": (current_group or previous_group)[0]["description"],
+                "previous_price": None, "current_price": None,
+                "previous_lines": previous_group, "current_lines": current_group,
+            })
+            continue
+        previous = previous_group[0] if previous_group else None
+        current = current_group[0] if current_group else None
         reference = current or previous
         assert reference is not None
         if previous is None:
             change = "added"
         elif current is None:
             change = "removed"
-        elif float(previous["price"]) != float(current["price"]):
+        elif previous["price"] != current["price"]:
             change = "price_changed"
         else:
             continue
@@ -838,4 +959,9 @@ async def get_company_quote_history(company_id: str, quote_id: str) -> dict[str,
         "description": quote[4],
         "revisions": revisions,
         "latest_comparison": comparison,
+        "comparison_basis": (
+            "Calculated by machine_id and normalised description, not a stable line identifier. "
+            "Description changes appear as removed and added lines; duplicate keys are ambiguous. "
+            "Source change_summary is returned separately for each revision."
+        ),
     }

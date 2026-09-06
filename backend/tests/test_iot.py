@@ -117,3 +117,46 @@ def test_iot_compares_telemetry_periods(monkeypatch) -> None:
         "average_percent_change": 10.0,
     }
     assert result["changes"]["production_rate_bph"]["average_percent_change"] == 10.0
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_observed_productive_hours_preserves_database_evidence(monkeypatch, available):
+    from decimal import Decimal
+
+    timestamp = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    window = {
+        "observed_productive_hours": Decimal("1.375") if available else Decimal("0"),
+        "snapshot_count": 2 if available else 0,
+        "first_snapshot": timestamp if available else None,
+        "last_snapshot": timestamp if available else None,
+    }
+    authorise = AsyncMock()
+
+    async def read_hours(machine_id):
+        authorise.assert_awaited_once_with("MCH-1", user, domain="operational")
+        return window
+
+    query = AsyncMock(side_effect=read_hours)
+    user = AuthContext("USR-1", "CMP-1", "technician")
+    monkeypatch.setattr(iot, "authorize_machine", authorise)
+    monkeypatch.setattr(iot, "get_observed_productive_hours", query)
+    result = asyncio.run(iot.observed_productive_hours("MCH-1", user))
+    assert result["machine_id"] == "MCH-1"
+    assert {key: result[key] for key in window} == window
+    assert "not the machine's lifetime hour counter" in result["scope_note"]
+    assert "no telemetry is available" in result["scope_note"]
+    query.assert_awaited_once_with("MCH-1")
+
+
+@pytest.mark.parametrize("missing_machine", [False, True])
+def test_observed_productive_hours_does_not_query_after_authorisation_failure(monkeypatch, missing_machine):
+    from fastapi import HTTPException
+    from core.data_access import MachineNotFoundError
+
+    error = MachineNotFoundError("MCH-1") if missing_machine else HTTPException(status_code=403)
+    monkeypatch.setattr(iot, "authorize_machine", AsyncMock(side_effect=error))
+    query = AsyncMock()
+    monkeypatch.setattr(iot, "get_observed_productive_hours", query)
+    with pytest.raises(type(error)):
+        asyncio.run(iot.observed_productive_hours("MCH-1", AuthContext("USR-1", "CMP-1", "commercial")))
+    query.assert_not_awaited()
