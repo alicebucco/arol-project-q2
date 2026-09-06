@@ -24,34 +24,13 @@ from core.contracts import AgentResult
         ("What installation requirements does this machine have?", "manuals"),
         ("How should I lubricate the machine?", "manuals"),
         ("What should I do about pneumatic pressure issues?", "manuals"),
-        ("Why is the machine generating repeated alarms?", "troubleshoot"),
+        ("Why is the machine generating repeated alarms?", "general"),
         ("What is the status of my orders and quotes?", "orders"),
         ("Hello, what can you do?", "general"),
     ],
 )
 def test_intent_routing(question: str, intent: str) -> None:
     assert orchestrator.classify_intent(question) == intent
-
-
-def test_manual_answer_uses_local_excerpts_not_raw_chunks() -> None:
-    answer = orchestrator._local_manual_answer(
-        {
-            "manual_evidence": [
-                {
-                    "file": "15610_manual_EN.pdf",
-                    "page": 32,
-                    "section": "safety",
-                    "content": "This raw chunk must not be shown.",
-                    "excerpt": "Wear protective gloves before maintenance.",
-                    "title": "Safety guidance",
-                }
-            ]
-        }
-    )
-
-    assert "1 relevant manual source" in answer
-    assert "This raw chunk" not in answer
-    assert "Wear protective gloves" not in answer
 
 
 def test_manual_intent_uses_composer_with_sanitised_manual_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -99,7 +78,7 @@ def test_manual_intent_uses_composer_with_sanitised_manual_evidence(monkeypatch:
         )
     )
 
-    assert result.agent == "manuals"
+    assert result.agent == ["manuals"]
     assert result.answer == "Use the safety guard before maintenance."
     assert result.manual_evidence == manual_evidence
     prompt = llm.await_args.args[0]
@@ -134,7 +113,7 @@ def test_data_agent_keeps_structured_evidence_for_the_chat(monkeypatch: pytest.M
         )
     )
 
-    assert result.agent == "iot"
+    assert result.agent == ["iot"]
     assert result.structured_data == evidence
 
 
@@ -163,7 +142,7 @@ def test_iot_count_plan_is_executed_through_the_registry(monkeypatch: pytest.Mon
 
 
 def test_orchestrator_uses_the_deterministic_plan_only_as_a_fallback() -> None:
-    result = orchestrator._plan_for_chat("iot", "Show recurring alarms.")
+    result = orchestrator._plan_for_chat("iot", "Show recurring alarms.", AuthContext("USR-001", "CMP-001", "full"))
 
     assert result.requests[0].operation == "alarm_summary"
 
@@ -175,14 +154,18 @@ def test_alarm_guidance_fallback_plan_collects_iot_and_manual_evidence() -> None
 
     assert plan is not None
     assert [(request.agent, request.operation) for request in plan.requests] == [
-        ("iot", "alarm_guidance_context"),
+        ("iot", "alarm_meaning"),
+        ("iot", "recent_alarms"),
         ("manuals", "search"),
     ]
     assert plan.requests[0].parameters == {
         "alarm_code": "AL017_LOW_AIR_PRESSURE",
+    }
+    assert plan.requests[1].parameters == {
+        "alarm_code": "AL017_LOW_AIR_PRESSURE",
         "limit": 5,
     }
-    assert plan.requests[1].parameters["query"] == (
+    assert plan.requests[2].parameters["query"] == (
         "AL017_LOW_AIR_PRESSURE Low air pressure cause remedy troubleshooting"
     )
 
@@ -200,7 +183,7 @@ def test_enabled_planner_can_mark_an_operational_sounding_question_as_general(mo
         )
     )
 
-    assert result.agent == "general"
+    assert result.agent is None
     reply.assert_awaited_once_with("Show recent alarms.")
 
 
@@ -228,7 +211,7 @@ def test_enabled_planner_executes_its_retrieval_plan_through_the_registry_path(m
         )
     )
 
-    assert result.agent == "iot"
+    assert result.agent == ["iot"]
     assert result.structured_data == bundle.structured_data
     assert execute_plan.await_args.args[0] == plan
 
@@ -237,11 +220,10 @@ def test_enabled_planner_executes_its_retrieval_plan_through_the_registry_path(m
 
 def test_alarm_guidance_uses_composer_with_multi_agent_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
     iot_evidence = {
-        "machine_id": "MCH-0001",
         "alarm_code": "AL017_LOW_AIR_PRESSURE",
         "meaning": "Low air pressure",
-        "recent_events": [],
     }
+    recent_alarms = {"machine_id": "MCH-0001", "alarms": []}
     manual_evidence = [{
         "file": "15610_manual_EN.pdf",
         "page": 97,
@@ -258,14 +240,20 @@ def test_alarm_guidance_uses_composer_with_multi_agent_evidence(monkeypatch: pyt
         [
             AgentResult(
                 agent="iot",
-                operation="alarm_guidance_context",
+                operation="alarm_meaning",
                 evidence=iot_evidence,
+            ),
+            AgentResult(
+                agent="iot",
+                operation="recent_alarms",
+                evidence=recent_alarms,
                 structured_data={"machine_id": "MCH-0001", "alarms": []},
             ),
             manual_result,
         ],
         [
-            {"agent": "iot", "operation": "alarm_guidance_context", "evidence": iot_evidence, "sources": [], "warnings": []},
+            {"agent": "iot", "operation": "alarm_meaning", "evidence": iot_evidence, "sources": [], "warnings": []},
+            {"agent": "iot", "operation": "recent_alarms", "evidence": recent_alarms, "sources": [], "warnings": []},
             {"agent": "manuals", "operation": "search", "evidence": manual_result.evidence, "sources": [], "warnings": []},
         ],
         {"machine_id": "MCH-0001", "alarms": []},
@@ -284,11 +272,11 @@ def test_alarm_guidance_uses_composer_with_multi_agent_evidence(monkeypatch: pyt
         )
     )
 
-    assert result.agent == "alarm_guidance"
+    assert result.agent == ["iot", "manuals"]
     assert result.answer == "AL017_LOW_AIR_PRESSURE means low air pressure."
     assert result.manual_evidence == manual_evidence
     assert result.structured_data == bundle.structured_data
-    assert execute_plan.await_args.args[0].requests[0].operation == "alarm_guidance_context"
+    assert execute_plan.await_args.args[0].requests[0].operation == "alarm_meaning"
     assert "Low air pressure" in llm.await_args.args[0]
     assert "Check the pneumatic supply." in llm.await_args.args[0]
 
@@ -332,7 +320,7 @@ def test_maintenance_due_uses_composer_with_the_observation_scope(monkeypatch: p
         )
     )
 
-    assert result.agent == "maintenance_due"
+    assert result.agent == ["service"]
     assert result.answer == "The available telemetry window contains 514.26 productive hours."
     assert result.manual_evidence is None
     assert result.structured_data == {"maintenance_observation": observation}
@@ -340,22 +328,31 @@ def test_maintenance_due_uses_composer_with_the_observation_scope(monkeypatch: p
     assert "not as a lifetime counter" in llm.await_args.kwargs["system_prompt"]
 
 
-def test_troubleshoot_never_calls_external_llm_with_manual_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
-    evidence = {
-        "machine_id": "MCH-0001",
-        "alarms": [{"alarm_id": "ALM-1", "alarm_code": "AL017_LOW_AIR_PRESSURE", "severity": "High", "alarm_status": "Open"}],
-        "repeated_alarm_patterns": [{"alarm_code": "AL017_LOW_AIR_PRESSURE", "occurrences": 3, "first_seen": datetime(2026, 7, 1), "last_seen": datetime(2026, 7, 3), "latest_status": "Open"}],
-        "telemetry": [{"timestamp": datetime(2026, 7, 3, 12), "operational_status": "Alarm", "alarm_count": 1}],
-        "maintenance_tickets": [{"ticket_id": "TCK-1", "ticket_status": "Open", "priority": "High"}],
-        "manual_evidence": [{"content": "Restricted manual text.", "excerpt": "Check the pneumatic supply.", "title": "Troubleshooting guidance"}],
-    }
-
-    async def fake_evidence(*_args: object, **_kwargs: object) -> dict[str, object]:
-        return evidence
-
-    llm = AsyncMock(return_value="This must not be used.")
-    monkeypatch.setattr(orchestrator, "investigate", fake_evidence)
-    monkeypatch.setattr(orchestrator, "generate_chat_reply", llm)
+def test_planner_handles_diagnostics_as_a_generic_multi_agent_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = orchestrator.OrchestrationPlan.model_validate(
+        {"requests": [
+            {"agent": "iot", "operation": "repeated_alarm_patterns", "parameters": {"limit": 5}},
+            {"agent": "service", "operation": "maintenance_tickets", "parameters": {"limit": 5}},
+            {"agent": "manuals", "operation": "search", "parameters": {"query": "repeated alarms", "limit": 5}},
+        ]}
+    )
+    decision = orchestrator.PlannerDecision.model_validate(
+        {"action": "retrieve_evidence", "plan": plan.model_dump()}
+    )
+    manual_evidence = [{"file": "15610_manual_EN.pdf", "page": 57, "section": "troubleshooting", "excerpt": "Check the pneumatic supply."}]
+    bundle = orchestrator.EvidenceBundle(
+        [
+            AgentResult(agent="iot", operation="repeated_alarm_patterns", evidence={"alarm_patterns": []}),
+            AgentResult(agent="service", operation="maintenance_tickets", evidence={"maintenance_tickets": []}),
+            AgentResult(agent="manuals", operation="search", evidence={"manual_evidence": manual_evidence}),
+        ],
+        [],
+        {"alarm_patterns": [], "maintenance_tickets": []},
+    )
+    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
+    monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=decision))
+    monkeypatch.setattr(orchestrator, "_execute_plan", AsyncMock(return_value=bundle))
+    monkeypatch.setattr(orchestrator, "generate_chat_reply", AsyncMock(return_value="No recurring alarm pattern was found."))
 
     result = asyncio.run(
         orchestrator.handle_chat(
@@ -365,10 +362,6 @@ def test_troubleshoot_never_calls_external_llm_with_manual_evidence(monkeypatch:
         )
     )
 
-    assert result.agent == "troubleshoot"
-    assert result.manual_evidence == evidence["manual_evidence"]
-    assert result.structured_data is not None
-    assert "manual_evidence" not in result.structured_data
-    assert result.structured_data["alarm_patterns"] == evidence["repeated_alarm_patterns"]
-    assert "Repeated alarm analysis" in result.answer
-    llm.assert_not_awaited()
+    assert result.agent == ["iot", "service", "manuals"]
+    assert result.manual_evidence == manual_evidence
+    assert result.structured_data == bundle.structured_data

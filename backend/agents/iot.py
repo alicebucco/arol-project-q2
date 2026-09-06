@@ -4,14 +4,14 @@ from datetime import datetime
 from typing import Any
 
 from core.auth import AuthContext
-from core.alarm_codes import alarm_meaning, normalise_alarm_code
-from core.contracts import AgentResult
 from core.data_access import (
     authorize_machine,
     count_alarm_events,
+    get_company_machines,
     get_machine_configuration_profile,
+    get_observed_productive_hours,
     get_recent_alarms,
-    get_recent_alarms_for_code,
+    get_repeated_alarm_patterns,
     get_telemetry_snapshots,
     summarize_alarm_events,
     summarize_telemetry_snapshots,
@@ -134,6 +134,40 @@ async def alarm_summary(
     }
 
 
+async def repeated_alarm_patterns(
+    machine_id: str,
+    user: AuthContext,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Return recurring alarm conditions after operational-data authorisation."""
+
+    await authorize_machine(machine_id, user, domain="operational")
+    return await get_repeated_alarm_patterns(machine_id, limit)
+
+
+async def machine_configuration(machine_id: str, user: AuthContext) -> dict[str, Any]:
+    """Return the installed configuration profile of an authorised machine."""
+
+    await authorize_machine(machine_id, user, domain="operational")
+    return {
+        "machine_id": machine_id,
+        "configuration_profile": await get_machine_configuration_profile(machine_id),
+    }
+
+
+async def observed_productive_hours(machine_id: str, user: AuthContext) -> dict[str, Any]:
+    """Return the productive-hour observation available in local telemetry."""
+
+    await authorize_machine(machine_id, user, domain="operational")
+    return {"machine_id": machine_id, **await get_observed_productive_hours(machine_id)}
+
+
+async def company_machines(user: AuthContext) -> list[dict[str, Any]]:
+    """Return the authenticated company's available machine identities."""
+
+    return await get_company_machines(user.company_id)
+
+
 async def telemetry(
     machine_id: str,
     user: AuthContext,
@@ -233,136 +267,3 @@ async def compare_telemetry_periods(
         "second_period": {"start_time": second_start, "end_time": second_end, **second},
         "changes": changes,
     }
-
-
-async def recent_alarms_evidence(
-    machine_id: str,
-    user: AuthContext,
-    limit: int,
-    **filters: Any,
-) -> AgentResult:
-    """Return authorised alarm records in the orchestration result contract."""
-
-    alarms = await recent_alarms(machine_id, user, limit, **filters)
-    return AgentResult(
-        agent="iot",
-        operation="recent_alarms",
-        evidence={"machine_id": machine_id, "alarms": alarms},
-        structured_data={"machine_id": machine_id, "alarms": alarms},
-    )
-
-
-async def count_alarms_evidence(
-    machine_id: str,
-    user: AuthContext,
-    **filters: Any,
-) -> AgentResult:
-    """Return an authorised alarm count in the orchestration result contract."""
-
-    result = await count_alarms(machine_id, user, **filters)
-    return AgentResult(
-        agent="iot",
-        operation="count_alarms",
-        evidence=result,
-        structured_data={"machine_id": machine_id},
-    )
-
-
-async def alarm_summary_evidence(
-    machine_id: str,
-    user: AuthContext,
-    limit: int,
-    **filters: Any,
-) -> AgentResult:
-    """Return authorised alarm patterns in the orchestration result contract."""
-
-    result = await alarm_summary(machine_id, user, limit, **filters)
-    return AgentResult(
-        agent="iot",
-        operation="alarm_summary",
-        evidence=result,
-        structured_data={"machine_id": machine_id, "alarm_patterns": result["patterns"]},
-    )
-
-
-async def telemetry_evidence(
-    machine_id: str,
-    user: AuthContext,
-    limit: int,
-    **filters: Any,
-) -> AgentResult:
-    """Return authorised telemetry in the orchestration result contract."""
-
-    snapshots = await telemetry(machine_id, user, limit, **filters)
-    return AgentResult(
-        agent="iot",
-        operation="telemetry",
-        evidence={"machine_id": machine_id, "telemetry": snapshots},
-        structured_data={"machine_id": machine_id, "telemetry": snapshots},
-    )
-
-
-async def telemetry_summary_evidence(
-    machine_id: str,
-    user: AuthContext,
-    **filters: Any,
-) -> AgentResult:
-    """Return an authorised telemetry summary in the orchestration result contract."""
-
-    result = await telemetry_summary(machine_id, user, **filters)
-    return AgentResult(
-        agent="iot",
-        operation="telemetry_summary",
-        evidence=result,
-        structured_data={"machine_id": machine_id},
-    )
-
-
-async def compare_telemetry_periods_evidence(
-    machine_id: str,
-    user: AuthContext,
-    **parameters: Any,
-) -> AgentResult:
-    """Return an authorised period comparison in the orchestration result contract."""
-
-    result = await compare_telemetry_periods(machine_id, user, **parameters)
-    return AgentResult(
-        agent="iot",
-        operation="compare_telemetry_periods",
-        evidence=result,
-        structured_data={"machine_id": machine_id},
-    )
-
-
-async def alarm_guidance_context_evidence(
-    machine_id: str,
-    user: AuthContext,
-    alarm_code: str,
-    limit: int,
-) -> AgentResult:
-    """Return alarm meaning and role-authorised event context for guidance."""
-
-    normalized_code = normalise_alarm_code(alarm_code)
-    # Every role that can read the machine manual may receive the deterministic
-    # code meaning. Operational events remain limited to technical roles.
-    await authorize_machine(machine_id, user, domain="manuals")
-    events: list[dict[str, Any]] = []
-    warnings: list[str] = []
-    if user.visibility in {"full", "technician"}:
-        events = await get_recent_alarms_for_code(machine_id, normalized_code, limit)
-    else:
-        warnings.append("Operational event history is unavailable for the current role.")
-
-    evidence = {
-        "machine_id": machine_id,
-        "alarm_code": normalized_code,
-        "meaning": alarm_meaning(normalized_code),
-        "recent_events": events,
-    }
-    return AgentResult(
-        agent="iot",
-        operation="alarm_guidance_context",
-        evidence=evidence,
-        warnings=warnings,
-        structured_data={"machine_id": machine_id, "alarms": events},
-    )

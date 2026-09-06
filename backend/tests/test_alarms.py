@@ -22,14 +22,11 @@ def test_commercial_user_receives_manual_guidance_without_operational_events(mon
             [
                 AgentResult(
                     agent="iot",
-                    operation="alarm_guidance_context",
+                    operation="alarm_meaning",
                     evidence={
-                        "machine_id": "MCH-0001",
                         "alarm_code": "AL017_LOW_AIR_PRESSURE",
                         "meaning": "Low air pressure",
-                        "recent_events": [],
                     },
-                    warnings=["Operational event history is unavailable for the current role."],
                 ),
                 AgentResult(
                     agent="manuals",
@@ -55,5 +52,7 @@ def test_commercial_user_receives_manual_guidance_without_operational_events(mon
 
     assert bundle.results[0].evidence["meaning"] == "Low air pressure"
     assert bundle.results[1].evidence["manual_evidence"] == [{"page": 97}]
-    assert bundle.results[0].evidence["recent_events"] == []
-    assert execute.await_args.args[0].requests[0].operation == "alarm_guidance_context"
+    assert [(request.agent, request.operation) for request in execute.await_args.args[0].requests] == [
+        ("iot", "alarm_meaning"),
+        ("manuals", "search"),
+    ]

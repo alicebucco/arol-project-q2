@@ -32,6 +32,14 @@ def test_plan_accepts_a_bounded_multi_agent_request() -> None:
     assert plan.requests[0].parameters["alarm_code"] == "AL017_LOW_AIR_PRESSURE"
 
 
+def test_plan_allows_ten_operations_and_rejects_an_eleventh() -> None:
+    request = {"agent": "iot", "operation": "recent_alarms", "parameters": {}}
+    assert len(OrchestrationPlan.model_validate({"requests": [request] * 10}).requests) == 10
+
+    with pytest.raises(ValidationError):
+        OrchestrationPlan.model_validate({"requests": [request] * 11})
+
+
 def test_planner_decision_distinguishes_retrieval_from_general_answer() -> None:
     retrieval = PlannerDecision.model_validate(
         {"action": "retrieve_evidence", "plan": {"requests": [{"agent": "iot", "operation": "recent_alarms"}]}}
@@ -104,12 +112,39 @@ def test_registry_rejects_unknown_operations_and_operation_specific_parameters()
     definition, parameters = OPERATION_REGISTRY.validate(
         AgentRequest(
             agent="iot",
-            operation="alarm_guidance_context",
-            parameters={"alarm_code": " al017_low_air_pressure ", "limit": 5},
+            operation="alarm_meaning",
+            parameters={"alarm_code": " al017_low_air_pressure "},
         )
     )
-    assert definition.requires_machine_context is True
+    assert definition.requires_machine_context is False
     assert parameters.alarm_code == "AL017_LOW_AIR_PRESSURE"
+
+    definition, parameters = OPERATION_REGISTRY.validate(
+        AgentRequest(agent="iot", operation="repeated_alarm_patterns", parameters={"limit": 5})
+    )
+    assert definition.requires_machine_context is True
+    assert parameters.limit == 5
+
+    for agent, operation, requires_machine in [
+        ("iot", "machine_configuration", True),
+        ("iot", "observed_productive_hours", True),
+        ("iot", "company_machines", False),
+        ("manuals", "maintenance_intervals", True),
+    ]:
+        definition, _ = OPERATION_REGISTRY.validate(AgentRequest(agent=agent, operation=operation))
+        assert definition.requires_machine_context is requires_machine
+
+    definition, parameters = OPERATION_REGISTRY.validate(
+        AgentRequest(agent="orders", operation="order_detail", parameters={"order_id": "ORD-1"})
+    )
+    assert definition.requires_machine_context is False
+    assert parameters.order_id == "ORD-1"
+
+    definition, parameters = OPERATION_REGISTRY.validate(
+        AgentRequest(agent="orders", operation="quote_history", parameters={"quote_id": "QTE-1"})
+    )
+    assert definition.requires_machine_context is False
+    assert parameters.quote_id == "QTE-1"
 
 
 def test_registry_exposes_a_non_executable_catalogue_for_the_planner() -> None:
@@ -144,15 +179,9 @@ def test_registry_executes_only_with_trusted_required_machine_context() -> None:
     assert calls[0].machine_id == "MCH-0001"
 
 
-def test_registry_delegates_to_the_agent_result_entry_point(monkeypatch) -> None:
-    expected = AgentResult(
-        agent="iot",
-        operation="recent_alarms",
-        evidence={"machine_id": "MCH-0001", "alarms": []},
-        structured_data={"machine_id": "MCH-0001", "alarms": []},
-    )
-    agent_operation = AsyncMock(return_value=expected)
-    monkeypatch.setattr(operation_registry, "recent_alarms_evidence", agent_operation)
+def test_registry_delegates_to_raw_agent_then_formats_the_result_in_core(monkeypatch) -> None:
+    agent_operation = AsyncMock(return_value=[])
+    monkeypatch.setattr(operation_registry, "recent_alarms", agent_operation)
 
     result = asyncio.run(
         operation_registry.OPERATION_REGISTRY.execute(
@@ -161,7 +190,12 @@ def test_registry_delegates_to_the_agent_result_entry_point(monkeypatch) -> None
         )
     )
 
-    assert result == expected
+    assert result == AgentResult(
+        agent="iot",
+        operation="recent_alarms",
+        evidence={"machine_id": "MCH-0001", "alarms": []},
+        structured_data={"machine_id": "MCH-0001", "alarms": []},
+    )
     agent_operation.assert_awaited_once()
     assert agent_operation.await_args.args[:3] == ("MCH-0001", AuthContext("USR-001", "CMP-001", "full"), 5)
     assert agent_operation.await_args.kwargs["alarm_code"] is None

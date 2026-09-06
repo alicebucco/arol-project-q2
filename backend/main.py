@@ -39,7 +39,6 @@ from agents.iot import (
     telemetry_summary,
 )
 from agents.service import maintenance_tickets, observed_maintenance_plan
-from agents.troubleshoot import investigate
 from agents.orders import orders, quotes
 from agents.manuals import ManualsUnavailableError, can_open_file, search as search_manual
 
@@ -289,21 +288,11 @@ class AlarmGuidance(BaseModel):
     manual_evidence: list[ManualSearchResult]
 
 
-class TroubleshootReport(BaseModel):
-    machine_id: str
-    query: str
-    summary: str
-    alarms: list[AlarmRecord]
-    telemetry: list[TelemetryRecord]
-    maintenance_tickets: list[MaintenanceTicketRecord]
-    manual_evidence: list[ManualSearchResult]
-
-
 class ChatResponse(BaseModel):
     """Chat output, with structured local manual sources when available."""
 
     answer: str
-    agent: str = "general"
+    agent: list[Literal["iot", "manuals", "service", "orders"]] | None = None
     sources: list[ManualSearchResult] = Field(default_factory=list)
     data: dict[str, Any] | None = None
 
@@ -584,19 +573,28 @@ async def machine_alarm_guidance(
             detail="Manual search is temporarily unavailable.",
         ) from error
 
-    context_result = next(
+    meaning_result = next(
         result
         for result in bundle.results
-        if result.agent == "iot" and result.operation == "alarm_guidance_context"
+        if result.agent == "iot" and result.operation == "alarm_meaning"
+    )
+    recent_alarms_result = next(
+        (
+            result
+            for result in bundle.results
+            if result.agent == "iot" and result.operation == "recent_alarms"
+        ),
+        None,
     )
     manual_result = next(
         result
         for result in bundle.results
         if result.agent == "manuals" and result.operation == "search"
     )
-    report = context_result.evidence
+    report = meaning_result.evidence
+    recent_events = recent_alarms_result.evidence["alarms"] if recent_alarms_result else []
     return AlarmGuidance(
-        machine_id=report["machine_id"],
+        machine_id=machine_id.strip(),
         alarm_code=report["alarm_code"],
         meaning=report["meaning"],
         recent_events=[
@@ -604,7 +602,7 @@ async def machine_alarm_guidance(
                 timestamp=row["timestamp"].isoformat(),
                 **{key: value for key, value in row.items() if key != "timestamp"},
             )
-            for row in report["recent_events"]
+            for row in recent_events
         ],
         manual_evidence=[manual_search_result(row) for row in manual_result.evidence["manual_evidence"]],
     )
@@ -801,60 +799,6 @@ async def open_machine_manual(
     )
 
 
-@app.get(
-    "/machines/{machine_id}/troubleshoot",
-    response_model=TroubleshootReport,
-)
-async def troubleshoot_machine(
-    machine_id: str,
-    query: str = Query(min_length=1, max_length=1_000),
-    user: AuthContext = Depends(get_current_user),
-    limit: int = Query(default=5, ge=1, le=20),
-) -> TroubleshootReport:
-    """Troubleshoot Agent: compose IoT, Service, and Manuals evidence."""
-
-    normalized_query = query.strip()
-    if not normalized_query:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="The troubleshooting query cannot be blank.",
-        )
-    try:
-        report = await investigate(machine_id.strip(), normalized_query, user, limit)
-    except MachineNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Machine not found.",
-        ) from error
-    except ManualsUnavailableError as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Manual search is temporarily unavailable.",
-        ) from error
-
-    return TroubleshootReport(
-        machine_id=report["machine_id"],
-        query=report["query"],
-        summary=report["summary"],
-        alarms=[
-            AlarmRecord(timestamp=row["timestamp"].isoformat(), **{key: value for key, value in row.items() if key != "timestamp"})
-            for row in report["alarms"]
-        ],
-        telemetry=[
-            TelemetryRecord(timestamp=row["timestamp"].isoformat(), **{key: value for key, value in row.items() if key != "timestamp"})
-            for row in report["telemetry"]
-        ],
-        maintenance_tickets=[
-            MaintenanceTicketRecord(
-                created_date=row["created_date"].isoformat(),
-                **{key: value for key, value in row.items() if key != "created_date"},
-            )
-            for row in report["maintenance_tickets"]
-        ],
-        manual_evidence=[manual_search_result(row) for row in report["manual_evidence"]],
-    )
-
-
 @app.get("/orders", response_model=list[OrderRecord])
 async def company_orders(
     user: AuthContext = Depends(get_current_user),
@@ -979,7 +923,7 @@ async def chat(
     try:
         result = await handle_chat(message, user, request.machine_id)
     except MissingMachineContextError as error:
-        return ChatResponse(answer=str(error), agent="orchestrator")
+        return ChatResponse(answer=str(error))
     except MachineNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

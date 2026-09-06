@@ -13,10 +13,11 @@ structured evidence when appropriate.
 | **API layer** | FastAPI endpoints, input validation, response contracts, and protected-route dependencies. |
 | **Authentication** | Verifies login credentials and JWTs; resolves the authenticated user's company and visibility. |
 | **Orchestrator** | Uses the LLM to propose a structured plan, validates it against the operation registry, dispatches one or more evidence agents, and asks the LLM to compose a grounded answer. |
-| **Manuals agent** | Retrieves and re-ranks chunks from the authorised machine's local PDF index, then builds concise excerpts and citations. |
+| **Manuals agent** | Retrieves and re-ranks chunks from the authorised machine's local PDF index. |
 | **IoT agent** | Retrieves authorised telemetry snapshots and alarm records. |
 | **Service agent** | Retrieves authorised maintenance-ticket records. |
 | **Orders agent** | Retrieves authorised quote and order records. |
+| **Evidence formatters** | Convert authorised raw agent data into `AgentResult`, remove local-only manual chunks, and attach bounded citations and frontend structured data. |
 | **Data-access layer** | Encapsulates SQL queries, joins, tenant filters, visibility checks, and record shaping. |
 | **LLM client** | Calls the configured external model for structured planning and evidence-grounded response composition. It has no direct database, PDF, or tool access. |
 
@@ -51,7 +52,7 @@ trusted without validation.
 | Contract | Purpose |
 | --- | --- |
 | `AgentRequest` | One requested agent, registered operation, and operation parameters. |
-| `OrchestrationPlan` | A bounded list of up to four requests plus the machine-context requirement. |
+| `OrchestrationPlan` | A bounded list of up to ten requests involving at most four agents. Machine context is derived by the registry. |
 | `AgentResult` | Authorised evidence, citations, warnings, and frontend structured data from one operation. |
 | `EvidenceSource` | A stable manual, operational, service, or commercial reference accompanying an evidence result. |
 
@@ -62,9 +63,10 @@ schema.
 The operation registry is the next enforcement layer after plan parsing. Each
 registered `(agent, operation)` pair declares an operation-specific Pydantic
 parameter model, whether it requires trusted machine context, and the
-authorised handler that produces an `AgentResult`. Requests for an unknown
-operation, unrecognised parameter, or missing machine context are rejected
-before an agent or data-access function is called.
+authorised handler that retrieves raw agent data and passes it to a core
+evidence formatter. Requests for an unknown operation, unrecognised parameter,
+or missing machine context are rejected before an agent or data-access function
+is called.
 
 ## Diagram
 

@@ -27,8 +27,9 @@ answer_without_evidence for general questions that can be answered without
 company, machine, manual, or operational data. For retrieve_evidence, choose
 only operations from the supplied catalogue. Do not invent agents,
 operations, parameters, IDs, dates, database queries, or permissions. Use at
-most four independent requests and preserve explicit filters stated by the
-user. The decision maker does not answer the user or retrieve evidence.
+most ten independent requests involving no more than four distinct agents, and
+preserve explicit filters stated by the user. The decision maker does not
+answer the user or retrieve evidence.
 """
 
 

@@ -79,7 +79,8 @@ export type ManualSearchResult = {
   citation: { source: "manual"; file: string; page: number; section: string };
   excerpt: string; title: string; highlights: string[]; relevance: number; similarity: number;
 };
-export type ChatMessage = { id: number; role: "user" | "assistant"; content: string; agent?: string; sources?: ManualSearchResult[]; data?: ChatData | null };
-export type ChatResponse = { answer: string; agent: string; sources: ManualSearchResult[]; data: ChatData | null };
+export type ChatAgent = "iot" | "manuals" | "service" | "orders";
+export type ChatMessage = { id: number; role: "user" | "assistant"; content: string; agent?: ChatAgent[] | null; sources?: ManualSearchResult[]; data?: ChatData | null };
+export type ChatResponse = { answer: string; agent: ChatAgent[] | null; sources: ManualSearchResult[]; data: ChatData | null };
 export type ServiceTicket = MaintenanceTicketRecord & { machine_id: string; serial_number: string };
 export type LoginResponse = { access_token: string; token_type: "bearer"; user: { user_id: string; company_id: string; visibility: string } };

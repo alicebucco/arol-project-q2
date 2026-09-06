@@ -52,7 +52,7 @@ async function mockApi(page: Page, unavailableMachines = false) {
       return route.fulfill({ status: 200, contentType: "application/pdf", body: "%PDF-1.4\n% mock manual" });
     }
     if (request.method() === "POST" && url.pathname === "/chat") {
-      return json({ answer: "Disconnect the machine before maintenance.", agent: "manuals", sources: [manualResult], data: null });
+      return json({ answer: "Disconnect the machine before maintenance.", agent: ["manuals"], sources: [manualResult], data: null });
     }
     return json({ detail: `Unexpected mocked request: ${request.method()} ${url.pathname}` }, 404);
   });

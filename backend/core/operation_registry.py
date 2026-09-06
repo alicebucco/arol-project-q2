@@ -15,20 +15,29 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agents.iot import (
-    alarm_guidance_context_evidence,
-    alarm_summary_evidence,
-    compare_telemetry_periods_evidence,
-    count_alarms_evidence,
-    recent_alarms_evidence,
-    telemetry_evidence,
-    telemetry_summary_evidence,
+    alarm_summary,
+    company_machines,
+    compare_telemetry_periods,
+    count_alarms,
+    machine_configuration,
+    observed_productive_hours,
+    recent_alarms,
+    repeated_alarm_patterns,
+    telemetry,
+    telemetry_summary,
 )
-from agents.manuals import search_evidence
-from agents.orders import orders_evidence, quotes_evidence
-from agents.service import maintenance_tickets_evidence, observed_maintenance_plan_evidence
-from core.alarm_codes import normalise_alarm_code
+from agents.manuals import maintenance_intervals, search
+from agents.orders import (
+    order_detail,
+    orders,
+    quote_history,
+    quotes,
+)
+from agents.service import maintenance_tickets, observed_maintenance_plan
+from core.alarm_codes import alarm_meaning, normalise_alarm_code
 from core.auth import AuthContext
 from core.contracts import AgentName, AgentRequest, AgentResult
+from core.evidence_formatters import agent_result, manual_search_result
 
 
 class UnknownOperationError(ValueError):
@@ -80,9 +89,12 @@ class AlarmSummaryParameters(AlarmQueryParameters):
     limit: int = Field(default=20, ge=1, le=100)
 
 
-class AlarmGuidanceParameters(OperationParameters):
+class RepeatedAlarmPatternsParameters(OperationParameters):
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class AlarmMeaningParameters(OperationParameters):
     alarm_code: str = Field(min_length=1, max_length=100)
-    limit: int = Field(default=5, ge=1, le=20)
 
     @field_validator("alarm_code")
     @classmethod
@@ -127,6 +139,14 @@ class MaintenanceTicketsParameters(OperationParameters):
 
 class ListRecordsParameters(OperationParameters):
     limit: int = Field(default=10, ge=1, le=100)
+
+
+class OrderDetailParameters(OperationParameters):
+    order_id: str = Field(min_length=1, max_length=100)
+
+
+class QuoteHistoryParameters(OperationParameters):
+    quote_id: str = Field(min_length=1, max_length=100)
 
 
 @dataclass(frozen=True)
@@ -210,81 +230,160 @@ def _machine(context: OperationContext) -> str:
 
 async def _recent_alarms(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, RecentAlarmsParameters)
-    return await recent_alarms_evidence(
-        _machine(context),
+    machine_id = _machine(context)
+    alarms = await recent_alarms(
+        machine_id,
         context.user,
         parameters.limit,
         **parameters.model_dump(exclude={"limit"}),
     )
+    evidence = {"machine_id": machine_id, "alarms": alarms}
+    return agent_result("iot", "recent_alarms", evidence, structured_data=evidence)
 
 
 async def _count_alarms(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, AlarmQueryParameters)
-    return await count_alarms_evidence(_machine(context), context.user, **parameters.model_dump())
+    result = await count_alarms(_machine(context), context.user, **parameters.model_dump())
+    return agent_result("iot", "count_alarms", result, structured_data={"machine_id": _machine(context)})
 
 
 async def _alarm_summary(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, AlarmSummaryParameters)
-    return await alarm_summary_evidence(
+    result = await alarm_summary(
         _machine(context),
         context.user,
         parameters.limit,
         **parameters.model_dump(exclude={"limit"}),
     )
+    return agent_result(
+        "iot", "alarm_summary", result,
+        structured_data={"machine_id": _machine(context), "alarm_patterns": result["patterns"]},
+    )
 
 
-async def _alarm_guidance_context(parameters: OperationParameters, context: OperationContext) -> AgentResult:
-    assert isinstance(parameters, AlarmGuidanceParameters)
-    return await alarm_guidance_context_evidence(
-        _machine(context), context.user, parameters.alarm_code, parameters.limit
+async def _repeated_alarm_patterns(parameters: OperationParameters, context: OperationContext) -> AgentResult:
+    assert isinstance(parameters, RepeatedAlarmPatternsParameters)
+    machine_id = _machine(context)
+    patterns = await repeated_alarm_patterns(machine_id, context.user, parameters.limit)
+    evidence = {"machine_id": machine_id, "alarm_patterns": patterns}
+    return agent_result("iot", "repeated_alarm_patterns", evidence, structured_data=evidence)
+
+
+async def _alarm_meaning(parameters: OperationParameters, context: OperationContext) -> AgentResult:
+    assert isinstance(parameters, AlarmMeaningParameters)
+    del context
+    return agent_result(
+        "iot",
+        "alarm_meaning",
+        {"alarm_code": parameters.alarm_code, "meaning": alarm_meaning(parameters.alarm_code)},
     )
 
 
 async def _telemetry(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, RecentTelemetryParameters)
-    return await telemetry_evidence(
-        _machine(context),
+    machine_id = _machine(context)
+    snapshots = await telemetry(
+        machine_id,
         context.user,
         parameters.limit,
         **parameters.model_dump(exclude={"limit"}),
     )
+    evidence = {"machine_id": machine_id, "telemetry": snapshots}
+    return agent_result("iot", "telemetry", evidence, structured_data=evidence)
 
 
 async def _telemetry_summary(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, TelemetryQueryParameters)
-    return await telemetry_summary_evidence(_machine(context), context.user, **parameters.model_dump())
+    result = await telemetry_summary(_machine(context), context.user, **parameters.model_dump())
+    return agent_result("iot", "telemetry_summary", result, structured_data={"machine_id": _machine(context)})
 
 
 async def _compare_telemetry_periods(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, CompareTelemetryPeriodsParameters)
-    return await compare_telemetry_periods_evidence(
+    result = await compare_telemetry_periods(
         _machine(context), context.user, **parameters.model_dump()
     )
+    return agent_result("iot", "compare_telemetry_periods", result, structured_data={"machine_id": _machine(context)})
+
+
+async def _machine_configuration(parameters: OperationParameters, context: OperationContext) -> AgentResult:
+    del parameters
+    result = await machine_configuration(_machine(context), context.user)
+    return agent_result("iot", "machine_configuration", result, structured_data={"machine_configuration": result})
+
+
+async def _observed_productive_hours(parameters: OperationParameters, context: OperationContext) -> AgentResult:
+    del parameters
+    result = await observed_productive_hours(_machine(context), context.user)
+    return agent_result("iot", "observed_productive_hours", result, structured_data={"productive_hours_observation": result})
+
+
+async def _company_machines(parameters: OperationParameters, context: OperationContext) -> AgentResult:
+    del parameters
+    machines = await company_machines(context.user)
+    evidence = {"machines": machines}
+    return agent_result("iot", "company_machines", evidence, structured_data=evidence)
 
 
 async def _search_manuals(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, ManualSearchParameters)
-    return await search_evidence(_machine(context), parameters.query, context.user, parameters.limit)
+    matches = await search(_machine(context), parameters.query, context.user, parameters.limit)
+    return manual_search_result(_machine(context), matches)
+
+
+async def _maintenance_intervals(parameters: OperationParameters, context: OperationContext) -> AgentResult:
+    del parameters
+    machine_id = _machine(context)
+    thresholds = await maintenance_intervals(machine_id, context.user)
+    evidence = {"machine_id": machine_id, "documented_threshold_hours": thresholds}
+    warnings = [] if thresholds else ["No documented working-hour maintenance intervals were found."]
+    return agent_result(
+        "manuals", "maintenance_intervals", evidence,
+        structured_data={"maintenance_intervals": evidence}, warnings=warnings,
+    )
 
 
 async def _maintenance_tickets(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, MaintenanceTicketsParameters)
-    return await maintenance_tickets_evidence(_machine(context), context.user, parameters.limit)
+    machine_id = _machine(context)
+    tickets = await maintenance_tickets(machine_id, context.user, parameters.limit)
+    evidence = {"machine_id": machine_id, "maintenance_tickets": tickets}
+    return agent_result("service", "maintenance_tickets", evidence, structured_data=evidence)
 
 
 async def _observed_maintenance_plan(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     del parameters
-    return await observed_maintenance_plan_evidence(_machine(context), context.user)
+    observation = await observed_maintenance_plan(_machine(context), context.user)
+    evidence = {"maintenance_observation": observation}
+    return agent_result("service", "observed_maintenance_plan", evidence, structured_data=evidence)
 
 
 async def _orders(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, ListRecordsParameters)
-    return await orders_evidence(context.user, parameters.limit)
+    records = await orders(context.user, parameters.limit)
+    evidence = {"orders": records}
+    return agent_result("orders", "orders", evidence, structured_data=evidence)
 
 
 async def _quotes(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, ListRecordsParameters)
-    return await quotes_evidence(context.user, parameters.limit)
+    records = await quotes(context.user, parameters.limit)
+    evidence = {"quotes": records}
+    return agent_result("orders", "quotes", evidence, structured_data=evidence)
+
+
+async def _order_detail(parameters: OperationParameters, context: OperationContext) -> AgentResult:
+    assert isinstance(parameters, OrderDetailParameters)
+    detail = await order_detail(context.user, parameters.order_id)
+    evidence = {"order_detail": detail}
+    return agent_result("orders", "order_detail", evidence, structured_data=evidence)
+
+
+async def _quote_history(parameters: OperationParameters, context: OperationContext) -> AgentResult:
+    assert isinstance(parameters, QuoteHistoryParameters)
+    history = await quote_history(context.user, parameters.quote_id)
+    evidence = {"quote_history": history}
+    return agent_result("orders", "quote_history", evidence, structured_data=evidence)
 
 
 OPERATION_REGISTRY = OperationRegistry(
@@ -292,14 +391,21 @@ OPERATION_REGISTRY = OperationRegistry(
         OperationDefinition("iot", "recent_alarms", RecentAlarmsParameters, True, _recent_alarms, "Retrieve recent alarm events, optionally filtered by code, severity, status, or time range."),
         OperationDefinition("iot", "count_alarms", AlarmQueryParameters, True, _count_alarms, "Count alarm events when the user asks how often an alarm or condition occurred."),
         OperationDefinition("iot", "alarm_summary", AlarmSummaryParameters, True, _alarm_summary, "Group alarm events by code to identify frequent or recurring alarm conditions."),
-        OperationDefinition("iot", "alarm_guidance_context", AlarmGuidanceParameters, True, _alarm_guidance_context, "Return a deterministic alarm-code meaning and, for roles authorised for operational data, matching recent events. Use when the user asks what one alarm code means."),
+        OperationDefinition("iot", "repeated_alarm_patterns", RepeatedAlarmPatternsParameters, True, _repeated_alarm_patterns, "Return alarm codes that occurred repeatedly, including occurrence count, first and last occurrence, and latest status. Use for diagnostic questions about recurring alarms."),
+        OperationDefinition("iot", "alarm_meaning", AlarmMeaningParameters, False, _alarm_meaning, "Return the deterministic display meaning of one valid alarm code. Use when the user asks what an alarm code means and no machine data is needed."),
         OperationDefinition("iot", "telemetry", RecentTelemetryParameters, True, _telemetry, "Retrieve recent machine telemetry snapshots such as production, uptime, temperature, and operational status."),
         OperationDefinition("iot", "telemetry_summary", TelemetryQueryParameters, True, _telemetry_summary, "Aggregate telemetry metrics over a requested time range for averages, totals, minima, maxima, or trends."),
         OperationDefinition("iot", "compare_telemetry_periods", CompareTelemetryPeriodsParameters, True, _compare_telemetry_periods, "Compare aggregate telemetry metrics across two explicit time periods."),
+        OperationDefinition("iot", "machine_configuration", OperationParameters, True, _machine_configuration, "Return the selected machine's installed configuration profile."),
+        OperationDefinition("iot", "observed_productive_hours", OperationParameters, True, _observed_productive_hours, "Return productive hours and time coverage observed in available machine telemetry."),
+        OperationDefinition("iot", "company_machines", OperationParameters, False, _company_machines, "List the authenticated company's available machines and their identity details."),
         OperationDefinition("manuals", "search", ManualSearchParameters, True, _search_manuals, "Find relevant machine-manual excerpts for procedures, safety guidance, configuration, troubleshooting, or technical requirements."),
+        OperationDefinition("manuals", "maintenance_intervals", OperationParameters, True, _maintenance_intervals, "Extract documented working-hour maintenance intervals from the selected machine's manual."),
         OperationDefinition("service", "maintenance_tickets", MaintenanceTicketsParameters, True, _maintenance_tickets, "Retrieve maintenance tickets and their statuses for the selected machine."),
         OperationDefinition("service", "observed_maintenance_plan", OperationParameters, True, _observed_maintenance_plan, "Compare documented maintenance thresholds with productive hours observed in available telemetry."),
         OperationDefinition("orders", "orders", ListRecordsParameters, False, _orders, "Retrieve the authenticated company’s recent orders and shipment statuses."),
         OperationDefinition("orders", "quotes", ListRecordsParameters, False, _quotes, "Retrieve the authenticated company’s recent quotes, revisions, validity, and totals."),
+        OperationDefinition("orders", "order_detail", OrderDetailParameters, False, _order_detail, "Retrieve the authenticated company's detail for one order, including fulfilment and approved quote content."),
+        OperationDefinition("orders", "quote_history", QuoteHistoryParameters, False, _quote_history, "Retrieve the authenticated company's revision history for one quote."),
     ]
 )

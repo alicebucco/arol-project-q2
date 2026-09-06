@@ -172,12 +172,18 @@ def test_alarm_guidance_endpoint(client: TestClient, monkeypatch: pytest.MonkeyP
                 [
                     AgentResult(
                         agent="iot",
-                        operation="alarm_guidance_context",
+                        operation="alarm_meaning",
                         evidence={
-                            "machine_id": "MCH-0001",
                             "alarm_code": "AL017_LOW_AIR_PRESSURE",
                             "meaning": "Low air pressure",
-                            "recent_events": [{"alarm_id": "ALM-1", "timestamp": timestamp, "alarm_code": "AL017_LOW_AIR_PRESSURE", "severity": "High", "alarm_status": "Open"}],
+                        },
+                    ),
+                    AgentResult(
+                        agent="iot",
+                        operation="recent_alarms",
+                        evidence={
+                            "machine_id": "MCH-0001",
+                            "alarms": [{"alarm_id": "ALM-1", "timestamp": timestamp, "alarm_code": "AL017_LOW_AIR_PRESSURE", "severity": "High", "alarm_status": "Open"}],
                         },
                     ),
                     AgentResult(
@@ -249,33 +255,6 @@ def test_manual_search_returns_excerpt_and_rejects_path_traversal(client: TestCl
     assert unsafe_file.status_code == 404
 
 
-def test_troubleshooting_response_includes_manual_excerpt(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    timestamp = datetime(2026, 8, 5, tzinfo=timezone.utc)
-    monkeypatch.setattr(
-        main,
-        "investigate",
-        AsyncMock(
-            return_value={
-                "machine_id": "MCH-0001",
-                "query": "low pressure",
-                "summary": "Evidence collected.",
-                "alarms": [{"alarm_id": "ALM-1", "timestamp": timestamp, "alarm_code": "AL017_LOW_AIR_PRESSURE", "severity": "High", "alarm_status": "Open"}],
-                "telemetry": [{"timestamp": timestamp, "operational_status": "Alarm", "production_rate_bph": 0, "uptime_percentage": 0, "alarm_count": 1, "temperature_c": None, "energy_kwh": None, "health_note": None}],
-                "maintenance_tickets": [{"ticket_id": "TCK-1", "alarm_id": "ALM-1", "ticket_type": "Remote troubleshooting", "ticket_status": "Open", "priority": "High", "created_date": timestamp, "owner_role": "technician"}],
-                "manual_evidence": [{"source": "manual", "file": "15610_manual_EN.pdf", "page": 57, "section": "troubleshooting", "content": "Long raw chunk", "excerpt": "Check the pneumatic supply.", "title": "Troubleshooting guidance", "highlights": ["pressure"], "relevance": 0.84, "similarity": 0.79}],
-            }
-        ),
-    )
-
-    response = client.get("/machines/MCH-0001/troubleshoot?query=low%20pressure")
-
-    assert response.status_code == 200
-    assert response.json()["manual_evidence"][0]["excerpt"] == "Check the pneumatic supply."
-    assert response.json()["manual_evidence"][0]["title"] == "Troubleshooting guidance"
-    assert "content" not in response.json()["manual_evidence"][0]
-    assert response.json()["alarms"][0]["alarm_id"] == "ALM-1"
-
-
 def test_orders_and_quotes(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "orders", AsyncMock(return_value=[{"order_id": "ORD-1", "quote_id": "Q-1", "order_status": "Confirmed", "shipment_status": "Ready for shipment"}]))
     monkeypatch.setattr(main, "quotes", AsyncMock(return_value=[{"quote_id": "Q-1", "valid_until": None, "validity_status": "Unknown", "revision_number": 2, "revision_status": "Approved", "discount_rate": 0.1, "line_total": 1250.5}]))
@@ -329,7 +308,7 @@ def test_chat_success_and_provider_error(client: TestClient, monkeypatch: pytest
     monkeypatch.setattr(
         main,
         "handle_chat",
-        AsyncMock(return_value=OrchestrationResult("iot", "One open alarm was found.", structured_data={"machine_id": "MCH-0001", "alarms": []})),
+        AsyncMock(return_value=OrchestrationResult(["iot"], "One open alarm was found.", structured_data={"machine_id": "MCH-0001", "alarms": []})),
     )
     success = client.post("/chat", json={"message": "Are there any recent alarms?", "machine_id": "MCH-0001"})
 
@@ -339,7 +318,7 @@ def test_chat_success_and_provider_error(client: TestClient, monkeypatch: pytest
     assert success.status_code == 200
     assert success.json() == {
         "answer": "One open alarm was found.",
-        "agent": "iot",
+        "agent": ["iot"],
         "sources": [],
         "data": {"machine_id": "MCH-0001", "alarms": []},
     }
@@ -363,7 +342,7 @@ def test_manual_chat_returns_structured_sources(client: TestClient, monkeypatch:
     monkeypatch.setattr(
         main,
         "handle_chat",
-        AsyncMock(return_value=OrchestrationResult("manuals", "I found 1 relevant manual source.", [source])),
+        AsyncMock(return_value=OrchestrationResult(["manuals"], "I found 1 relevant manual source.", [source])),
     )
 
     response = client.post("/chat", json={"message": "Find safety instructions in the manual.", "machine_id": "MCH-0001"})

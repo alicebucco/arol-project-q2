@@ -41,7 +41,13 @@ class OrchestrationPlan(_StrictContract):
     neither select security scope nor execute arbitrary code, SQL, or tools.
     """
 
-    requests: list[AgentRequest] = Field(min_length=1, max_length=4)
+    requests: list[AgentRequest] = Field(min_length=1, max_length=10)
+
+    @model_validator(mode="after")
+    def bounded_agent_count(self) -> "OrchestrationPlan":
+        if len({request.agent for request in self.requests}) > 4:
+            raise ValueError("An orchestration plan may involve at most four agents.")
+        return self
 
 
 class PlannerDecision(_StrictContract):

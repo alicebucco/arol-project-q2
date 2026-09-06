@@ -12,8 +12,13 @@ if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
 
 from core.auth import AuthContext
-from core.contracts import AgentResult, EvidenceSource
-from core.data_access import authorize_machine, manual_file_belongs_to_machine, search_manual_chunks
+from core.data_access import (
+    authorize_machine,
+    get_manual_contents,
+    manual_file_belongs_to_machine,
+    search_manual_chunks,
+)
+from core.maintenance_observation import manual_maintenance_thresholds
 
 
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -185,51 +190,8 @@ async def can_open_file(machine_id: str, source_file: str, user: AuthContext) ->
     return await manual_file_belongs_to_machine(machine_id, source_file)
 
 
-def _evidence_sources(matches: list[dict[str, Any]]) -> list[EvidenceSource]:
-    """Convert local matches into bounded citations for an external composer."""
+async def maintenance_intervals(machine_id: str, user: AuthContext) -> list[int]:
+    """Return working-hour maintenance intervals extracted from the local manual."""
 
-    return [
-        EvidenceSource(
-            source_id=f"manual:{match['file']}:{match['page']}",
-            source_type="manual",
-            citation={
-                "file": match["file"],
-                "page": match["page"],
-                "section": match["section"],
-                "title": match.get("title"),
-                "relevance": match.get("relevance"),
-            },
-            excerpt=match.get("excerpt"),
-        )
-        for match in matches
-    ]
-
-
-def _public_matches(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep the existing citation fields while removing the local PDF chunk."""
-
-    return [{key: value for key, value in match.items() if key != "content"} for match in matches]
-
-
-async def search_evidence(
-    machine_id: str,
-    query: str,
-    user: AuthContext,
-    limit: int,
-) -> AgentResult:
-    """Return authorised manual evidence without exposing raw PDF chunks."""
-
-    matches = await search(machine_id, query, user, limit)
-    public_matches = _public_matches(matches)
-    sources = _evidence_sources(public_matches)
-    return AgentResult(
-        agent="manuals",
-        operation="search",
-        evidence={
-            "machine_id": machine_id,
-            "match_count": len(sources),
-            "manual_evidence": public_matches,
-        },
-        structured_data={"machine_id": machine_id, "manual_evidence": public_matches},
-        sources=sources,
-    )
+    await authorize_machine(machine_id, user, domain="manuals")
+    return manual_maintenance_thresholds(await get_manual_contents(machine_id))
