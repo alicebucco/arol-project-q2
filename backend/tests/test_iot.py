@@ -47,6 +47,21 @@ def test_iot_counts_filtered_alarms_without_loading_events(monkeypatch) -> None:
     )
 
 
+def test_iot_retrieves_exact_alarm_events_by_id(monkeypatch) -> None:
+    authorize = AsyncMock()
+    lookup = AsyncMock(return_value=[{"alarm_id": "ALM-0045", "alarm_code": "AL024_FRONT_PANEL_EMERGENCY_PRESSED"}])
+    monkeypatch.setattr(iot, "authorize_machine", authorize)
+    monkeypatch.setattr(iot, "get_alarms_by_ids", lookup)
+
+    result = asyncio.run(iot.alarms_by_id(
+        "MCH-0001", AuthContext("USR-1", "CMP-1", "full"), [" alm-0045 ", "ALM-0045"],
+    ))
+
+    assert result == [{"alarm_id": "ALM-0045", "alarm_code": "AL024_FRONT_PANEL_EMERGENCY_PRESSED"}]
+    authorize.assert_awaited_once()
+    lookup.assert_awaited_once_with("MCH-0001", ["ALM-0045"])
+
+
 def test_iot_summarizes_alarm_patterns(monkeypatch) -> None:
     monkeypatch.setattr(iot, "authorize_machine", AsyncMock())
     monkeypatch.setattr(iot, "count_alarm_events", AsyncMock(return_value=4))

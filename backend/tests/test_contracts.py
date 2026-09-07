@@ -125,6 +125,12 @@ def test_registry_rejects_unknown_operations_and_operation_specific_parameters()
     assert definition.requires_machine_context is True
     assert parameters.limit == 5
 
+    definition, parameters = OPERATION_REGISTRY.validate(
+        AgentRequest(agent="iot", operation="alarms_by_id", parameters={"alarm_ids": [" alm-0045 ", "ALM-0045"]})
+    )
+    assert definition.requires_machine_context is True
+    assert parameters.alarm_ids == ["ALM-0045"]
+
     for agent, operation, requires_machine in [
         ("iot", "machine_configuration", True),
         ("iot", "observed_productive_hours", True),
@@ -236,6 +242,39 @@ def test_registry_delegates_to_raw_agent_then_formats_the_result_in_core(monkeyp
     agent_operation.assert_awaited_once()
     assert agent_operation.await_args.args[:3] == ("MCH-0001", AuthContext("USR-001", "CMP-001", "full"), 5)
     assert agent_operation.await_args.kwargs["alarm_code"] is None
+
+
+def test_registry_formats_exact_alarm_id_lookup(monkeypatch) -> None:
+    agent_operation = AsyncMock(return_value=[
+        {"alarm_id": "ALM-0045", "alarm_code": "AL024_FRONT_PANEL_EMERGENCY_PRESSED"}
+    ])
+    monkeypatch.setattr(operation_registry, "alarms_by_id", agent_operation)
+    user = AuthContext("USR-001", "CMP-001", "full")
+
+    result = asyncio.run(
+        operation_registry.OPERATION_REGISTRY.execute(
+            AgentRequest(agent="iot", operation="alarms_by_id", parameters={"alarm_ids": ["ALM-0045", "ALM-9999"]}),
+            OperationContext(user=user, machine_id="MCH-0001"),
+        )
+    )
+
+    assert result == AgentResult(
+        agent="iot",
+        operation="alarms_by_id",
+        evidence={
+            "machine_id": "MCH-0001",
+            "requested_alarm_ids": ["ALM-0045", "ALM-9999"],
+            "alarms": [{"alarm_id": "ALM-0045", "alarm_code": "AL024_FRONT_PANEL_EMERGENCY_PRESSED"}],
+            "unmatched_alarm_ids": ["ALM-9999"],
+        },
+        structured_data={
+            "machine_id": "MCH-0001",
+            "requested_alarm_ids": ["ALM-0045", "ALM-9999"],
+            "alarms": [{"alarm_id": "ALM-0045", "alarm_code": "AL024_FRONT_PANEL_EMERGENCY_PRESSED"}],
+            "unmatched_alarm_ids": ["ALM-9999"],
+        },
+    )
+    agent_operation.assert_awaited_once_with("MCH-0001", user, ["ALM-0045", "ALM-9999"])
 
 
 def test_registry_preserves_manual_alarm_code_match_metadata(monkeypatch) -> None:

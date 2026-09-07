@@ -15,6 +15,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agents.iot import (
+    alarms_by_id,
     alarm_summary,
     company_machines,
     compare_telemetry_periods,
@@ -100,6 +101,24 @@ class AlarmMeaningParameters(OperationParameters):
     @classmethod
     def normalise_alarm_code(cls, value: str) -> str:
         return normalise_alarm_code(value)
+
+
+class AlarmsByIdParameters(OperationParameters):
+    """Exact event identifiers emitted by another authorised operation."""
+
+    alarm_ids: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("alarm_ids")
+    @classmethod
+    def normalise_alarm_ids(cls, values: list[str]) -> list[str]:
+        normalised: list[str] = []
+        for value in values:
+            if not isinstance(value, str) or not (alarm_id := value.strip()):
+                raise ValueError("Each alarm ID must be a non-empty string.")
+            alarm_id = alarm_id.upper()
+            if alarm_id not in normalised:
+                normalised.append(alarm_id)
+        return normalised
 
 
 class TelemetryQueryParameters(TimeRangeParameters):
@@ -292,6 +311,20 @@ async def _recent_alarms(parameters: OperationParameters, context: OperationCont
     return agent_result("iot", "recent_alarms", evidence, structured_data=evidence)
 
 
+async def _alarms_by_id(parameters: OperationParameters, context: OperationContext) -> AgentResult:
+    assert isinstance(parameters, AlarmsByIdParameters)
+    machine_id = _machine(context)
+    alarms = await alarms_by_id(machine_id, context.user, parameters.alarm_ids)
+    found_ids = {alarm["alarm_id"] for alarm in alarms}
+    evidence = {
+        "machine_id": machine_id,
+        "requested_alarm_ids": parameters.alarm_ids,
+        "alarms": alarms,
+        "unmatched_alarm_ids": [alarm_id for alarm_id in parameters.alarm_ids if alarm_id not in found_ids],
+    }
+    return agent_result("iot", "alarms_by_id", evidence, structured_data=evidence)
+
+
 async def _count_alarms(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, AlarmQueryParameters)
     result = await count_alarms(_machine(context), context.user, **parameters.model_dump())
@@ -465,6 +498,7 @@ async def _ticket_detail(parameters: OperationParameters, context: OperationCont
 OPERATION_REGISTRY = OperationRegistry(
     [
         OperationDefinition("iot", "recent_alarms", RecentAlarmsParameters, True, _recent_alarms, "Retrieve recent alarm events, optionally filtered by code, severity, status, or time range."),
+        OperationDefinition("iot", "alarms_by_id", AlarmsByIdParameters, True, _alarms_by_id, "Retrieve exact selected-machine alarm events from their event IDs. Use only when an authorised operation already supplied alarm IDs; this operation does not accept alarm codes."),
         OperationDefinition("iot", "count_alarms", AlarmQueryParameters, True, _count_alarms, "Count alarm events when the user asks how often an alarm or condition occurred."),
         OperationDefinition("iot", "alarm_summary", AlarmSummaryParameters, True, _alarm_summary, "Group alarm events by code to identify frequent or recurring alarm conditions."),
         OperationDefinition("iot", "repeated_alarm_patterns", RepeatedAlarmPatternsParameters, True, _repeated_alarm_patterns, "Return alarm codes that occurred repeatedly, including occurrence count, first and last occurrence, and latest status. Use for diagnostic questions about recurring alarms."),

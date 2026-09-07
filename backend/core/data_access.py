@@ -118,6 +118,40 @@ async def get_recent_alarms(
     ]
 
 
+async def get_alarms_by_ids(machine_id: str, alarm_ids: list[str]) -> list[dict[str, Any]]:
+    """Return exact alarm events belonging to an already-authorized machine.
+
+    The machine predicate is intentionally part of the query so an alarm ID
+    supplied by another evidence operation cannot disclose an event outside
+    the selected machine.
+    """
+
+    if not alarm_ids:
+        return []
+    async with connection() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                """
+                SELECT alarm_id, timestamp, alarm_code, severity, alarm_status
+                FROM alarms
+                WHERE machine_id = %s AND alarm_id = ANY(%s)
+                ORDER BY timestamp DESC
+                """,
+                (machine_id, alarm_ids),
+            )
+            rows = await cursor.fetchall()
+    return [
+        {
+            "alarm_id": row[0],
+            "timestamp": row[1],
+            "alarm_code": row[2],
+            "severity": row[3],
+            "alarm_status": row[4],
+        }
+        for row in rows
+    ]
+
+
 async def count_alarm_events(
     machine_id: str,
     *,

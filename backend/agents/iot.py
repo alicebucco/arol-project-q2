@@ -10,6 +10,7 @@ from core.data_access import (
     count_alarm_events,
     get_company_machines,
     get_machine_configuration_profile,
+    get_alarms_by_ids,
     get_observed_productive_hours,
     get_recent_alarms,
     get_repeated_alarm_patterns,
@@ -42,6 +43,21 @@ def _validate_alarm_filters(severity: str | None, alarm_status: str | None) -> N
         raise ValueError(f"Unsupported alarm status: {alarm_status}.")
 
 
+def _normalise_alarm_ids(alarm_ids: list[str]) -> list[str]:
+    """Validate exact event IDs while preserving their first-seen order."""
+
+    if not isinstance(alarm_ids, list) or not alarm_ids:
+        raise ValueError("alarm_ids must contain at least one alarm event ID.")
+    normalised: list[str] = []
+    for alarm_id in alarm_ids:
+        if not isinstance(alarm_id, str) or not (value := alarm_id.strip()):
+            raise ValueError("Each alarm ID must be a non-empty string.")
+        value = value.upper()
+        if value not in normalised:
+            normalised.append(value)
+    return normalised
+
+
 def _validate_operational_status(operational_status: str | None) -> None:
     if operational_status is not None and operational_status not in OPERATIONAL_STATUSES:
         raise ValueError(f"Unsupported operational status: {operational_status}.")
@@ -68,6 +84,18 @@ async def recent_alarms(
         machine_id, limit, start_time=start_time, end_time=end_time,
         alarm_code=alarm_code, severity=severity, alarm_status=alarm_status,
     )
+
+
+async def alarms_by_id(
+    machine_id: str,
+    user: AuthContext,
+    alarm_ids: list[str],
+) -> list[dict[str, Any]]:
+    """Retrieve exact authorised alarm events by event ID, never by alarm code."""
+
+    normalised_ids = _normalise_alarm_ids(alarm_ids)
+    await authorize_machine(machine_id, user, domain="operational")
+    return await get_alarms_by_ids(machine_id, normalised_ids)
 
 
 async def count_alarms(
