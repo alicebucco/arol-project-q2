@@ -7,7 +7,8 @@ import pytest
 
 import core.orchestrator as orchestrator
 from core.auth import AuthContext
-from core.contracts import AgentResult
+from core.contracts import AgentResult, ContextualPlannerDecision, ConversationTurn, OrchestrationPlan
+from core.planner import InvalidPlannerOutputError
 
 
 @pytest.mark.parametrize(
@@ -31,6 +32,162 @@ from core.contracts import AgentResult
 )
 def test_intent_routing(question: str, intent: str) -> None:
     assert orchestrator.classify_intent(question) == intent
+
+
+def test_contextual_follow_up_executes_the_bound_evidence_plan(monkeypatch: pytest.MonkeyPatch) -> None:
+    alarm_code = "AL082_MINIMUM_CAPS_LEVEL"
+    plan = OrchestrationPlan.model_validate({"requests": [
+        {"agent": "iot", "operation": "alarm_meaning", "parameters": {"alarm_code": alarm_code}},
+        {"agent": "iot", "operation": "recent_alarms", "parameters": {"alarm_code": alarm_code, "limit": 5}},
+        {"agent": "manuals", "operation": "search", "parameters": {"query": f"{alarm_code} troubleshooting", "limit": 5}},
+    ]})
+    decision = ContextualPlannerDecision.model_validate({
+        "action": "retrieve_evidence",
+        "intent": "alarm_guidance",
+        "references": {"alarm_codes": [alarm_code]},
+        "plan": plan.model_dump(),
+    })
+    bundle = orchestrator.EvidenceBundle(
+        [AgentResult(agent="iot", operation="alarm_meaning", evidence={"alarm_code": alarm_code})],
+        [],
+        {"machine_id": "MCH-0001"},
+    )
+    execute = AsyncMock(return_value=bundle)
+    compose = AsyncMock(return_value="The alarm details are available.")
+    contextual_planner = AsyncMock(return_value=decision)
+    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
+    monkeypatch.setattr(orchestrator, "decide_contextual_question", contextual_planner)
+    monkeypatch.setattr(orchestrator, "_execute_plan", execute)
+    monkeypatch.setattr(orchestrator, "_compose_evidence_answer", compose)
+    history = [
+        ConversationTurn(role="user", content=f"When did {alarm_code} last occur?"),
+        ConversationTurn(role="assistant", content="It last occurred at 01:56 UTC."),
+    ]
+
+    result = asyncio.run(orchestrator.handle_chat(
+        "Can you tell me more about that alarm?", AuthContext("USR-001", "CMP-001", "full"), "MCH-0001", history,
+    ))
+
+    assert result.agent == ["iot"]
+    assert result.answer == "The alarm details are available."
+    assert contextual_planner.await_args.args == (
+        "Can you tell me more about that alarm?", history, orchestrator.BUSINESS_TODAY,
+    )
+    assert execute.await_args.args[0] == plan
+    assert execute.await_args.args[1] == "Can you tell me more about that alarm?"
+
+
+def test_contextual_follow_up_returns_a_safe_clarification_for_an_invalid_plan(monkeypatch: pytest.MonkeyPatch) -> None:
+    execute = AsyncMock()
+    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
+    monkeypatch.setattr(
+        orchestrator,
+        "decide_contextual_question",
+        AsyncMock(side_effect=InvalidPlannerOutputError("lost reference")),
+    )
+    monkeypatch.setattr(orchestrator, "_execute_plan", execute)
+    history = [
+        ConversationTurn(role="user", content="When did AL082_MINIMUM_CAPS_LEVEL last occur?"),
+        ConversationTurn(role="assistant", content="It last occurred at 01:56 UTC."),
+    ]
+
+    result = asyncio.run(orchestrator.handle_chat(
+        "Can you tell me more about that alarm?", AuthContext("USR-001", "CMP-001", "full"), "MCH-0001", history,
+    ))
+
+    assert result.agent is None
+    assert "Please name the alarm" in result.answer
+    execute.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("Can you tell me more about that alarm?", True),
+        ("How many times did it occur on 2026-07-30?", True),
+        ("What is the current production rate?", False),
+        ("AL083_FALLEN_BOTTLE_ALARM", False),
+    ],
+)
+def test_conversation_context_is_used_only_for_dependent_messages(message: str, expected: bool) -> None:
+    assert orchestrator._requires_conversation_context(message) is expected
+
+
+def test_explicit_alarm_selection_uses_a_standalone_plan_despite_eight_prior_turns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    alarm_code = "AL083_FALLEN_BOTTLE_ALARM"
+    plan = OrchestrationPlan.model_validate({"requests": [
+        {"agent": "iot", "operation": "alarm_meaning", "parameters": {"alarm_code": alarm_code}},
+        {"agent": "iot", "operation": "recent_alarms", "parameters": {"alarm_code": alarm_code, "limit": 5}},
+        {"agent": "manuals", "operation": "search", "parameters": {"query": f"{alarm_code} troubleshooting", "limit": 5}},
+    ]})
+    decision = orchestrator.PlannerDecision.model_validate(
+        {"action": "retrieve_evidence", "plan": plan.model_dump()}
+    )
+    history = [
+        ConversationTurn(role="user", content="Can you tell me more about that alarm?"),
+        ConversationTurn(role="assistant", content="No directly supported manual claim was produced."),
+        ConversationTurn(role="user", content="How many times did it occur on 2026-07-30?"),
+        ConversationTurn(role="assistant", content="AL082_MINIMUM_CAPS_LEVEL occurred once."),
+        ConversationTurn(role="user", content="Tell me about AL082_MINIMUM_CAPS_LEVEL and AL083_FALLEN_BOTTLE_ALARM."),
+        ConversationTurn(role="assistant", content="Both alarm meanings are available."),
+        ConversationTurn(role="user", content="Can you tell me more about that alarm?"),
+        ConversationTurn(role="assistant", content="Please specify the alarm code."),
+    ]
+    bundle = orchestrator.EvidenceBundle(
+        [AgentResult(agent="iot", operation="alarm_meaning", evidence={"alarm_code": alarm_code})],
+        [],
+        {"machine_id": "MCH-0001"},
+    )
+    contextual_planner = AsyncMock()
+    standalone_planner = AsyncMock(return_value=decision)
+    execute = AsyncMock(return_value=bundle)
+    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
+    monkeypatch.setattr(orchestrator, "decide_contextual_question", contextual_planner)
+    monkeypatch.setattr(orchestrator, "decide_question", standalone_planner)
+    monkeypatch.setattr(orchestrator, "_execute_plan", execute)
+    monkeypatch.setattr(orchestrator, "_compose_evidence_answer", AsyncMock(return_value="AL083 details."))
+
+    result = asyncio.run(orchestrator.handle_chat(
+        alarm_code, AuthContext("USR-001", "CMP-001", "full"), "MCH-0001", history,
+    ))
+
+    assert result.answer == "AL083 details."
+    contextual_planner.assert_not_awaited()
+    standalone_planner.assert_awaited_once_with(alarm_code)
+    assert execute.await_args.args[0] == plan
+
+
+def test_production_question_ignores_unrelated_alarm_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = OrchestrationPlan.model_validate({"requests": [
+        {"agent": "iot", "operation": "telemetry", "parameters": {"limit": 6}},
+    ]})
+    decision = orchestrator.PlannerDecision.model_validate(
+        {"action": "retrieve_evidence", "plan": plan.model_dump()}
+    )
+    history = [
+        ConversationTurn(role="user", content="Tell me about AL082_MINIMUM_CAPS_LEVEL and AL083_FALLEN_BOTTLE_ALARM."),
+        ConversationTurn(role="assistant", content="Both alarm meanings are available."),
+    ]
+    contextual_planner = AsyncMock()
+    standalone_planner = AsyncMock(return_value=decision)
+    bundle = orchestrator.EvidenceBundle(
+        [AgentResult(agent="iot", operation="telemetry", evidence={"telemetry": []})], [], {"telemetry": []},
+    )
+    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
+    monkeypatch.setattr(orchestrator, "decide_contextual_question", contextual_planner)
+    monkeypatch.setattr(orchestrator, "decide_question", standalone_planner)
+    monkeypatch.setattr(orchestrator, "_execute_plan", AsyncMock(return_value=bundle))
+    monkeypatch.setattr(orchestrator, "_compose_evidence_answer", AsyncMock(return_value="Production rate details."))
+
+    result = asyncio.run(orchestrator.handle_chat(
+        "What is the current production rate?", AuthContext("USR-001", "CMP-001", "full"), "MCH-0001", history,
+    ))
+
+    assert result.answer == "Production rate details."
+    contextual_planner.assert_not_awaited()
+    standalone_planner.assert_awaited_once_with("What is the current production rate?")
 
 
 def test_manual_intent_uses_composer_with_sanitised_manual_evidence(monkeypatch: pytest.MonkeyPatch) -> None:

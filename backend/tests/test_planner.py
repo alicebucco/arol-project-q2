@@ -1,4 +1,5 @@
 import asyncio
+from datetime import date
 from unittest.mock import AsyncMock
 
 import pytest
@@ -7,11 +8,15 @@ import core.planner as planner
 from core.operation_registry import OPERATION_REGISTRY
 from core.planner import (
     PLANNER_DECISION_SYSTEM_PROMPT,
+    CONTEXTUAL_PLANNER_SYSTEM_PROMPT,
     InvalidPlannerOutputError,
+    build_contextual_planner_prompt,
+    decide_contextual_question,
     build_planner_prompt,
     decide_question,
     parse_planner_decision,
 )
+from core.contracts import ConversationTurn
 
 
 def test_planner_prompt_exposes_only_the_registry_catalogue() -> None:
@@ -69,3 +74,84 @@ def test_decide_question_rejects_unknown_registry_requests(monkeypatch) -> None:
 
     with pytest.raises(InvalidPlannerOutputError):
         asyncio.run(planner.decide_question("Do something with alarms"))
+
+
+def test_contextual_planner_preserves_an_inherited_alarm_across_the_evidence_plan(monkeypatch) -> None:
+    alarm_code = "AL082_MINIMUM_CAPS_LEVEL"
+    llm = AsyncMock(return_value=(
+        '{"action":"retrieve_evidence","intent":"alarm_guidance",'
+        f'"references":{{"alarm_codes":["{alarm_code}"],"ticket_ids":[],"order_ids":[],"quote_ids":[]}},'
+        '"plan":{"requests":['
+        f'{{"agent":"iot","operation":"alarm_meaning","parameters":{{"alarm_code":"{alarm_code}"}}}},'
+        f'{{"agent":"iot","operation":"recent_alarms","parameters":{{"alarm_code":"{alarm_code}","limit":5}}}},'
+        f'{{"agent":"manuals","operation":"search","parameters":{{"query":"{alarm_code} troubleshooting","limit":5}}}}'
+        ']}}'
+    ))
+    monkeypatch.setattr(planner, "generate_structured_reply", llm)
+    history = [
+        ConversationTurn(role="user", content=f"When did {alarm_code} last occur?"),
+        ConversationTurn(role="assistant", content="It last occurred at 01:56 UTC."),
+    ]
+
+    decision = asyncio.run(decide_contextual_question(
+        "Can you tell me more about that alarm?", history, date(2026, 8, 5),
+    ))
+
+    assert decision.intent == "alarm_guidance"
+    assert decision.references.alarm_codes == [alarm_code]
+    assert decision.plan is not None
+    assert [(request.agent, request.operation) for request in decision.plan.requests] == [
+        ("iot", "alarm_meaning"),
+        ("iot", "recent_alarms"),
+        ("manuals", "search"),
+    ]
+    prompt = llm.await_args.args[0]
+    assert alarm_code in prompt
+    assert "Can you tell me more about that alarm?" in prompt
+    assert "unrelated identifiers that merely appear in older turns" in CONTEXTUAL_PLANNER_SYSTEM_PROMPT
+    assert llm.await_args.args[1] == CONTEXTUAL_PLANNER_SYSTEM_PROMPT
+
+
+def test_contextual_planner_rejects_alarm_guidance_that_loses_the_inherited_code(monkeypatch) -> None:
+    alarm_code = "AL082_MINIMUM_CAPS_LEVEL"
+    llm = AsyncMock(return_value=(
+        '{"action":"retrieve_evidence","intent":"alarm_guidance",'
+        '"references":{"alarm_codes":[],"ticket_ids":[],"order_ids":[],"quote_ids":[]},'
+        '"plan":{"requests":[{"agent":"iot","operation":"recent_alarms","parameters":{"limit":5}}]}}'
+    ))
+    monkeypatch.setattr(planner, "generate_structured_reply", llm)
+    history = [
+        ConversationTurn(role="user", content=f"When did {alarm_code} last occur?"),
+        ConversationTurn(role="assistant", content="It last occurred at 01:56 UTC."),
+    ]
+
+    with pytest.raises(InvalidPlannerOutputError, match="inherited alarm code"):
+        asyncio.run(decide_contextual_question(
+            "Can you tell me more about that alarm?", history, date(2026, 8, 5),
+        ))
+
+
+def test_contextual_planner_retries_once_after_an_invalid_response(monkeypatch) -> None:
+    alarm_code = "AL082_MINIMUM_CAPS_LEVEL"
+    valid_response = (
+        '{"action":"retrieve_evidence","intent":"alarm_guidance",'
+        f'"references":{{"alarm_codes":["{alarm_code}"],"ticket_ids":[],"order_ids":[],"quote_ids":[]}},'
+        '"plan":{"requests":['
+        f'{{"agent":"iot","operation":"alarm_meaning","parameters":{{"alarm_code":"{alarm_code}"}}}},'
+        f'{{"agent":"iot","operation":"recent_alarms","parameters":{{"alarm_code":"{alarm_code}","limit":5}}}},'
+        f'{{"agent":"manuals","operation":"search","parameters":{{"query":"{alarm_code} troubleshooting","limit":5}}}}'
+        ']}}'
+    )
+    llm = AsyncMock(side_effect=["not valid JSON", valid_response])
+    monkeypatch.setattr(planner, "generate_structured_reply", llm)
+    history = [
+        ConversationTurn(role="user", content=f"When did {alarm_code} last occur?"),
+        ConversationTurn(role="assistant", content="It last occurred at 01:56 UTC."),
+    ]
+
+    decision = asyncio.run(decide_contextual_question(
+        "Can you tell me more about that alarm?", history, date(2026, 8, 5),
+    ))
+
+    assert decision.references.alarm_codes == [alarm_code]
+    assert llm.await_count == 2

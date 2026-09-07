@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 import main
 from core.auth import AuthContext, get_current_user
 from core.llm import LlmRequestError
-from core.contracts import AgentResult
+from core.contracts import AgentResult, ConversationTurn
 from core.orchestrator import EvidenceBundle, OrchestrationResult
 
 
@@ -346,6 +346,30 @@ def test_chat_success_and_provider_error(client: TestClient, monkeypatch: pytest
     assert failure.json()["detail"] == "The LLM provider could not complete the request."
 
 
+def test_chat_forwards_bounded_history_to_the_orchestrator(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    handler = AsyncMock(return_value=OrchestrationResult(None, "Please clarify which alarm you mean."))
+    monkeypatch.setattr(main, "handle_chat", handler)
+    history = [
+        {"role": "user", "content": "How many AL017_LOW_AIR_PRESSURE alarms occurred?"},
+        {"role": "assistant", "content": "I found four occurrences."},
+    ]
+
+    response = client.post("/chat", json={
+        "message": "And yesterday?", "machine_id": "MCH-0001", "history": history,
+    })
+
+    assert response.status_code == 200
+    handler.assert_awaited_once_with(
+        "And yesterday?",
+        FULL_USER,
+        "MCH-0001",
+        [
+            ConversationTurn(role="user", content="How many AL017_LOW_AIR_PRESSURE alarms occurred?"),
+            ConversationTurn(role="assistant", content="I found four occurrences."),
+        ],
+    )
+
+
 def test_manual_chat_returns_structured_sources(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     source = {
         "source": "manual",
@@ -375,5 +399,9 @@ def test_manual_chat_returns_structured_sources(client: TestClient, monkeypatch:
 
 def test_input_validation(client: TestClient) -> None:
     assert client.post("/chat", json={"message": "   ", "machine_id": "MCH-0001"}).status_code == 422
+    assert client.post("/chat", json={
+        "message": "And yesterday?",
+        "history": [{"role": "user", "content": "An unfinished previous turn."}],
+    }).status_code == 422
     assert client.get("/machines/MCH-0001/alarms?limit=0").status_code == 422
     assert client.get("/machines/MCH-0001/manuals/search?query=%20%20").status_code == 422

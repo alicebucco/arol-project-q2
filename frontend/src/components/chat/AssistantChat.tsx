@@ -1,17 +1,24 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { apiPost, fetchManualPdf, readableError } from "../../api/client";
-import type { ChatMessage, ChatResponse, ManualSearchResult } from "../../types";
+import type { ChatHistoryTurn, ChatMessage, ChatResponse, ManualSearchResult } from "../../types";
 import { manualRelevanceLabel } from "../../utils/format";
 import { useNotifications } from "../layout/Notifications";
 import { ChatStructuredData } from "./ChatStructuredData";
 
 export function AssistantChat({ machineId, onClose }: { machineId: string; onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]); const [draft, setDraft] = useState(""); const [error, setError] = useState(""); const [isSending, setIsSending] = useState(false); const [openingSource, setOpeningSource] = useState<string | null>(null); const { notify } = useNotifications();
+  function conversationHistory(): ChatHistoryTurn[] {
+    let lastAssistant = -1;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role === "assistant") { lastAssistant = index; break; }
+    }
+    return (lastAssistant < 0 ? [] : messages.slice(0, lastAssistant + 1).slice(-8)).map(({ role, content }) => ({ role, content }));
+  }
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const message = draft.trim(); if (!message || isSending) return;
     const userMessage: ChatMessage = { id: Date.now(), role: "user", content: message }; setMessages((current) => [...current, userMessage]); setDraft(""); setError(""); setIsSending(true);
-    try { const result = await apiPost<ChatResponse>("/chat", { message, machine_id: machineId }); setMessages((current) => [...current, { id: Date.now() + 1, role: "assistant", content: result.answer, agent: result.agent, sources: result.sources, data: result.data }]); }
+    try { const result = await apiPost<ChatResponse>("/chat", { message, machine_id: machineId, history: conversationHistory() }); setMessages((current) => [...current, { id: Date.now() + 1, role: "assistant", content: result.answer, agent: result.agent, sources: result.sources, data: result.data }]); }
     catch (sendError) { const errorMessage = readableError(sendError, "Unable to send the question."); setError(errorMessage); notify(errorMessage, "error"); }
     finally { setIsSending(false); }
   }

@@ -12,12 +12,19 @@ from agents.manuals import validate_manual_claim_links
 from core.alarm_codes import alarm_meaning, normalise_alarm_code
 from core.auth import AuthContext
 from core.business_time import BUSINESS_TODAY
-from core.contracts import AgentName, AgentRequest, AgentResult, OrchestrationPlan, PlannerDecision
+from core.contracts import (
+    AgentName,
+    AgentRequest,
+    AgentResult,
+    ConversationTurn,
+    OrchestrationPlan,
+    PlannerDecision,
+)
 from core.config import get_settings
 from core.llm import generate_chat_reply, generate_structured_reply
 from core.maintenance_observation import maintenance_observation
 from core.operation_registry import OPERATION_REGISTRY, OperationContext
-from core.planner import decide_question
+from core.planner import InvalidPlannerOutputError, decide_contextual_question, decide_question
 
 
 class MissingMachineContextError(ValueError):
@@ -61,6 +68,19 @@ class ManualClaimReply(BaseModel):
 
 MACHINE_PATTERN = re.compile(r"\bMCH-[A-Z0-9-]+\b", re.IGNORECASE)
 ALARM_CODE_PATTERN = re.compile(r"\bAL\d{3}_[A-Z0-9_]+\b", re.IGNORECASE)
+CONTEXT_DEPENDENT_MESSAGE_PATTERN = re.compile(
+    r"\b(?:that|this|same) (?:alarm|ticket|order|quote|one)\b|\b(?:it|they|them)\b|"
+    r"\b(?:yesterday|today|then|before|after)\b|"
+    r"\b(?:quell[oa]|quest[oa]|stess[oa]) (?:allarme|ticket|ordine|preventivo)\b|"
+    r"\b(?:ieri|oggi|allora|prima|dopo)\b",
+    re.IGNORECASE,
+)
+
+
+def _requires_conversation_context(message: str) -> bool:
+    """Return whether a message needs earlier turns to resolve its subject or time."""
+
+    return CONTEXT_DEPENDENT_MESSAGE_PATTERN.search(message) is not None
 
 
 def classify_intent(message: str) -> str:
@@ -124,10 +144,14 @@ def classify_intent(message: str) -> str:
 
 
 def _iso_periods(message: str) -> list[tuple[datetime, datetime]]:
-    """Extract pairs of inclusive ISO dates for the current deterministic router."""
+    """Extract inclusive UTC day ranges from ISO dates for the deterministic router."""
 
     values = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", message)
     periods: list[tuple[datetime, datetime]] = []
+    if len(values) == 1:
+        value = datetime.fromisoformat(values[0]).date()
+        return [(datetime.combine(value, time.min, tzinfo=timezone.utc),
+                 datetime.combine(value, time.max, tzinfo=timezone.utc))]
     for index in range(0, len(values) - 1, 2):
         start_date = datetime.fromisoformat(values[index]).date()
         end_date = datetime.fromisoformat(values[index + 1]).date()
@@ -492,11 +516,33 @@ async def handle_chat(
     message: str,
     user: AuthContext,
     machine_id: str | None = None,
+    history: list[ConversationTurn] | None = None,
 ) -> OrchestrationResult:
     """Route a chat message, collect authorised evidence, and compose an answer."""
 
-    intent = classify_intent(message)
     planner_enabled = get_settings().llm_planner_enabled
+    if history and planner_enabled and _requires_conversation_context(message):
+        try:
+            contextual_decision = await decide_contextual_question(message, history, BUSINESS_TODAY)
+        except InvalidPlannerOutputError:
+            return OrchestrationResult(
+                None,
+                "I could not safely resolve the reference in the previous messages. Please name the alarm, ticket, order, or quote again.",
+            )
+        if contextual_decision.action == "ask_clarification":
+            return OrchestrationResult(None, contextual_decision.clarification or "Please clarify your request.")
+        if contextual_decision.action == "answer_without_evidence":
+            return OrchestrationResult(None, await generate_chat_reply(message))
+        assert contextual_decision.plan is not None
+        bundle = await _execute_plan(contextual_decision.plan, message, machine_id, user)
+        return OrchestrationResult(
+            _result_agents(bundle),
+            await _compose_evidence_answer(message, bundle),
+            manual_evidence=_manual_evidence(bundle),
+            structured_data=bundle.structured_data,
+        )
+
+    intent = classify_intent(message)
     planner_decision = await decide_question(message) if planner_enabled else None
     if planner_decision is not None and planner_decision.action == "answer_without_evidence":
         return OrchestrationResult(None, await generate_chat_reply(message))

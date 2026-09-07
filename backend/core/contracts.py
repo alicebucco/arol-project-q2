@@ -71,6 +71,42 @@ class PlannerDecision(_StrictContract):
         return self
 
 
+class ConversationTurn(_StrictContract):
+    """A bounded, display-text-only turn supplied for temporary chat context."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=2_000)
+
+
+class ConversationReferences(_StrictContract):
+    """Explicit identifiers inherited from a bounded conversational context."""
+
+    alarm_codes: list[str] = Field(default_factory=list, max_length=5)
+    ticket_ids: list[str] = Field(default_factory=list, max_length=5)
+    order_ids: list[str] = Field(default_factory=list, max_length=5)
+    quote_ids: list[str] = Field(default_factory=list, max_length=5)
+
+
+class ContextualPlannerDecision(_StrictContract):
+    """A contextual plan or clarification proposed before evidence retrieval."""
+
+    action: Literal["retrieve_evidence", "ask_clarification", "answer_without_evidence"]
+    intent: str | None = Field(default=None, max_length=100)
+    references: ConversationReferences = Field(default_factory=ConversationReferences)
+    plan: OrchestrationPlan | None = None
+    clarification: str | None = Field(default=None, min_length=1, max_length=1_000)
+
+    @model_validator(mode="after")
+    def valid_contextual_shape(self) -> "ContextualPlannerDecision":
+        if self.action == "retrieve_evidence" and self.intent and self.plan is not None and self.clarification is None:
+            return self
+        if self.action == "ask_clarification" and self.clarification and self.intent is None and self.plan is None:
+            return self
+        if self.action == "answer_without_evidence" and self.intent is None and self.plan is None and self.clarification is None:
+            return self
+        raise ValueError("The contextual planner decision has an invalid shape.")
+
+
 class EvidenceSource(_StrictContract):
     """A stable citation or record reference accompanying agent evidence."""
 

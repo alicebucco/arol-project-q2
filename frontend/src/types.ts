@@ -83,6 +83,7 @@ export type ManualSearchResult = {
   section_category_is_inferred?: boolean; documented_section_title?: string | null;
 };
 export type ChatAgent = "iot" | "manuals" | "service" | "orders";
+export type ChatHistoryTurn = { role: "user" | "assistant"; content: string };
 export type ChatMessage = { id: number; role: "user" | "assistant"; content: string; agent?: ChatAgent[] | null; sources?: ManualSearchResult[]; data?: ChatData | null };
 export type ChatResponse = { answer: string; agent: ChatAgent[] | null; sources: ManualSearchResult[]; data: ChatData | null };
 export type ServiceTicket = MaintenanceTicketRecord & { machine_id: string; serial_number: string };

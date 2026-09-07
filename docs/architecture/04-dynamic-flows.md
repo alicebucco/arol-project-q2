@@ -1,7 +1,7 @@
 # Dynamic Flows
 
 These sequence diagrams describe three representative flows: authentication,
-LLM-planned local manual retrieval with grounded composition, and a request
+context-aware local manual retrieval with grounded composition, and a request
 rejected by role policy.
 
 ## 1. Login
@@ -33,9 +33,10 @@ sequenceDiagram
     participant DB as PostgreSQL + pgvector
 
     U->>FE: “What are the installation requirements?”
-    FE->>API: POST /chat with JWT and machine context
+    FE->>API: POST /chat with JWT, machine context, and bounded prior display turns
     API->>API: Resolve company and visibility
-    API->>LLM: Request structured plan, without business evidence
+    API->>LLM: Request one contextual structured plan, when history exists
+    Note over API: Conversation text is context only, never authorised evidence
     LLM-->>API: manuals.search with typed parameters
     API->>API: Validate operation, machine context, and parameters
     API->>M: Retrieve for the authorised machine
@@ -67,3 +68,18 @@ sequenceDiagram
     API-->>FE: Explicit access denial
     FE-->>U: “You do not have access to commercial data.”
 ```
+
+## Temporary conversational context
+
+While the chat drawer remains open, the frontend sends at most the eight most
+recent completed display turns with the next message. When the planner is
+enabled, the backend gives those text-only turns to a contextual planner only
+when the new message depends on an earlier subject or time, such as "that
+alarm" or "yesterday". A self-contained question, including one with an
+explicit code or a new subject, is planned independently of earlier turns. A
+contextual plan must either ask for clarification or declare and preserve every
+identifier that it actually inherits in its parameters. The backend rejects a
+plan that introduces, drops, or loosens an inherited reference, then retrieves
+fresh authorised evidence through the operation registry. The context is never
+persisted or treated as evidence. Manual excerpts, sources, structured data,
+and private manual chunks are excluded from the conversational context payload.

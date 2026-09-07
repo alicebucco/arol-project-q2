@@ -7,7 +7,7 @@ from typing import Any, Literal
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from core.auth import (
     AuthContext,
@@ -18,6 +18,7 @@ from core.auth import (
     get_current_user,
 )
 from core.config import get_settings
+from core.contracts import ConversationTurn
 from core.db import check_connection, connection
 from core.data_access import (
     MachineNotFoundError,
@@ -69,10 +70,24 @@ app.add_middleware(
 
 
 class ChatRequest(BaseModel):
-    """Temporary chat input before sessions and machine context are added."""
+    """One chat message with bounded, non-persistent conversational context."""
 
     message: str = Field(min_length=1, max_length=4_000)
     machine_id: str | None = Field(default=None, max_length=100)
+    history: list[ConversationTurn] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def valid_history(self) -> "ChatRequest":
+        if sum(len(turn.content) for turn in self.history) > 12_000:
+            raise ValueError("The chat history is too long.")
+        if any(
+            turn.role != ("user" if index % 2 == 0 else "assistant")
+            for index, turn in enumerate(self.history)
+        ):
+            raise ValueError("Chat history must alternate user and assistant turns.")
+        if self.history and self.history[-1].role != "assistant":
+            raise ValueError("Chat history must end with an assistant turn.")
+        return self
 
 
 class MachineContext(BaseModel):
@@ -1026,7 +1041,7 @@ async def chat(
         )
 
     try:
-        result = await handle_chat(message, user, request.machine_id)
+        result = await handle_chat(message, user, request.machine_id, request.history)
     except MissingMachineContextError as error:
         return ChatResponse(answer=str(error))
     except MachineNotFoundError:
