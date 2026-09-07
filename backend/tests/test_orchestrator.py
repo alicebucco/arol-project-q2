@@ -245,7 +245,7 @@ def test_manual_intent_uses_composer_with_sanitised_manual_evidence(monkeypatch:
     assert "Return plain text only" in llm.await_args.kwargs["system_prompt"]
 
 
-def test_manual_composition_discards_unvalidated_claims_and_keeps_chunks_private(
+def test_manual_composition_reconstructs_selected_source_sentences_and_keeps_chunks_private(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     private_chunk = {
@@ -273,14 +273,7 @@ def test_manual_composition_discards_unvalidated_claims_and_keeps_chunks_private
         )
 
     structured = AsyncMock(return_value=(
-        '{"claims": ['
-        '{"claim":"The manual requires power isolation before maintenance.",'
-        '"chunk_id":"manual-p32-1",'
-        '"supporting_quote":"Disconnect the power supply before maintenance."},'
-        '{"claim":"The manual documents a valve failure.",'
-        '"chunk_id":"manual-p32-1",'
-        '"supporting_quote":"A valve failure causes this alarm."}'
-        ']}'
+        '{"selections":[{"chunk_id":"manual-p32-1","sentence_indexes":[0]}]}'
     ))
     monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
     monkeypatch.setattr(orchestrator, "generate_structured_reply", structured)
@@ -291,7 +284,7 @@ def test_manual_composition_discards_unvalidated_claims_and_keeps_chunks_private
         "Find safety instructions in the manual.", AuthContext("USR-001", "CMP-001", "full"), "MCH-0001",
     ))
 
-    assert result.answer == "The manual requires power isolation before maintenance."
+    assert result.answer == "Disconnect the power supply before maintenance."
     assert result.manual_evidence == public_evidence["manual_evidence"]
     assert "content" not in result.manual_evidence[0]
     assert "Disconnect the power supply before maintenance." in structured.await_args.args[0]
@@ -439,12 +432,12 @@ def test_alarm_guidance_fallback_plan_collects_iot_and_manual_evidence() -> None
     )
 
 
-def test_enabled_planner_can_mark_an_operational_sounding_question_as_general(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enabled_planner_uses_manual_fallback_for_a_general_decision_with_machine_context(monkeypatch: pytest.MonkeyPatch) -> None:
     decision = orchestrator.PlannerDecision.model_validate({"action": "answer_without_evidence"})
     monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
     monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=decision))
-    reply = AsyncMock(return_value="I can help with the available machine information.")
-    monkeypatch.setattr(orchestrator, "generate_chat_reply", reply)
+    fallback = AsyncMock(return_value=orchestrator.OrchestrationResult(["manuals"], "Documented answer."))
+    monkeypatch.setattr(orchestrator, "_manual_fallback_result", fallback)
 
     result = asyncio.run(
         orchestrator.handle_chat(
@@ -452,8 +445,8 @@ def test_enabled_planner_can_mark_an_operational_sounding_question_as_general(mo
         )
     )
 
-    assert result.agent is None
-    reply.assert_awaited_once_with("Show recent alarms.")
+    assert result.agent == ["manuals"]
+    fallback.assert_awaited_once()
 
 
 def test_enabled_planner_executes_its_retrieval_plan_through_the_registry_path(monkeypatch: pytest.MonkeyPatch) -> None:

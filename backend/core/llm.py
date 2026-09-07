@@ -59,7 +59,7 @@ async def _generate_reply(
 async def generate_chat_reply(message: str, system_prompt: str = SYSTEM_PROMPT) -> str:
     """Generate a conversational reply using the existing chat settings."""
 
-    return await _generate_reply(message, system_prompt, temperature=0.75, max_tokens=500)
+    return await _generate_reply(message, system_prompt, temperature=0.4, max_tokens=500)
 
 
 async def generate_structured_reply(message: str, system_prompt: str) -> str:

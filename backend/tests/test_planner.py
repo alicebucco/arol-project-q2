@@ -81,6 +81,7 @@ def test_decide_question_rejects_unknown_registry_requests(monkeypatch) -> None:
 
     with pytest.raises(InvalidPlannerOutputError):
         asyncio.run(planner.decide_question("Do something with alarms"))
+    assert llm.await_count == 2
 
 
 def test_decide_question_uses_semantic_candidates_and_keeps_manual_search(monkeypatch) -> None:

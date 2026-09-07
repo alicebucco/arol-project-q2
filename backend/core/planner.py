@@ -78,6 +78,7 @@ ALARM_FOLLOW_UP_PATTERN = re.compile(
     re.IGNORECASE,
 )
 CONTEXTUAL_PLANNER_ATTEMPTS = 2
+PLANNER_ATTEMPTS = 2
 MAXIMUM_CONTEXTUAL_RETRIEVAL_TEXT = 4_000
 
 
@@ -264,11 +265,26 @@ async def decide_question(
     """Ask the LLM whether evidence is needed and validate any proposed plan."""
 
     catalogue = await _planner_catalogue_for_question(message, registry)
-    response = await generate_structured_reply(build_planner_prompt(message, catalogue), PLANNER_DECISION_SYSTEM_PROMPT)
-    decision = parse_planner_decision(response)
-    if decision.plan is not None:
-        _validate_plan_requests(decision.plan, registry)
-    return decision
+    prompt = build_planner_prompt(message, catalogue)
+    last_error: InvalidPlannerOutputError | None = None
+    for attempt in range(PLANNER_ATTEMPTS):
+        response = await generate_structured_reply(prompt, PLANNER_DECISION_SYSTEM_PROMPT)
+        try:
+            decision = parse_planner_decision(response)
+            if decision.plan is not None:
+                _validate_plan_requests(decision.plan, registry)
+        except InvalidPlannerOutputError as error:
+            last_error = error
+            if attempt + 1 < PLANNER_ATTEMPTS:
+                prompt += (
+                    "\n\nYour previous decision was rejected. Return a corrected JSON decision using only "
+                    "the supplied operation catalogue and parameter schemas. Do not use company IDs as "
+                    "machine, order, quote, ticket, or alarm identifiers."
+                )
+            continue
+        return decision
+    assert last_error is not None
+    raise last_error
 
 
 async def decide_contextual_question(

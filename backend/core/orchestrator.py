@@ -9,7 +9,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from agents.manuals import validate_manual_claim_links
 from core.alarm_codes import alarm_meaning, normalise_alarm_code
 from core.auth import AuthContext
 from core.business_time import BUSINESS_TODAY
@@ -49,22 +48,21 @@ class EvidenceBundle:
     structured_data: dict[str, Any]
 
 
-class ManualClaim(BaseModel):
-    """One model-proposed claim that must be linked to an authorised chunk."""
+class ManualSentenceSelection(BaseModel):
+    """One selection of source sentences from an authorised manual chunk."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    claim: str = Field(min_length=1, max_length=1_000)
     chunk_id: str = Field(min_length=1, max_length=200)
-    supporting_quote: str = Field(min_length=1, max_length=2_000)
+    sentence_indexes: list[int] = Field(min_length=1, max_length=10)
 
 
-class ManualClaimReply(BaseModel):
-    """Structured LLM output used only before backend claim validation."""
+class ManualSelectionReply(BaseModel):
+    """Structured LLM output used only before backend source validation."""
 
     model_config = ConfigDict(extra="forbid")
 
-    claims: list[ManualClaim] = Field(default_factory=list, max_length=10)
+    selections: list[ManualSentenceSelection] = Field(default_factory=list, max_length=10)
 
 
 MACHINE_PATTERN = re.compile(r"\bMCH-[A-Z0-9-]+\b", re.IGNORECASE)
@@ -437,34 +435,48 @@ async def _compose_validated_manual_answer(
     bundle: EvidenceBundle,
     manual_evidence: list[dict[str, Any]],
 ) -> str:
-    """Generate structured manual claims and discard any without valid provenance."""
+    """Select authorised manual sentences without requiring the LLM to copy quotes."""
+
+    chunks: list[dict[str, Any]] = []
+    for evidence in manual_evidence:
+        content = evidence.get("content")
+        chunk_id = evidence.get("chunk_id")
+        if not isinstance(content, str) or not isinstance(chunk_id, str):
+            continue
+        sentences = [sentence.strip() for sentence in re.split(r"(?<=[.!?])\s+", content) if sentence.strip()]
+        if sentences:
+            chunks.append({"chunk_id": chunk_id, "sentences": sentences})
 
     prompt = (
         f"User question: {message}\n\n"
-        "Return a JSON object with exactly one key, `claims`. Each claim must contain `claim`, `chunk_id`, "
-        "and `supporting_quote`. Use only the authorised manual chunks below. A supporting quote must be copied "
-        "from the cited chunk. Do not include file names, pages, Markdown, or fields other than those required. "
-        "If no direct manual claim is supported, return {\"claims\": []}.\n\n"
-        f"Authorised manual chunks:\n{json.dumps(manual_evidence, default=str, ensure_ascii=False)}"
+        "Return a JSON object with exactly one key, `selections`. Each selection must contain `chunk_id` and "
+        "`sentence_indexes`, a list of zero-based indexes from that chunk's numbered sentences. Select only sentences "
+        "that directly answer the question. Do not write claims, quotes, file names, pages, Markdown, or extra fields. "
+        "If no direct sentence is supported, return {\"selections\": []}.\n\n"
+        f"Authorised numbered sentences:\n{json.dumps(chunks, ensure_ascii=False)}"
     )
     system_prompt = (
-        "You extract conservative, source-grounded manual claims for the AROL Customer Platform. "
-        "Return valid JSON only. Do not infer causes, remedies, procedures, completion, or maintenance status "
-        "beyond the wording in one cited chunk."
+        "You select conservative, source-grounded manual sentences for the AROL Customer Platform. "
+        "Return valid JSON only. Do not infer causes, remedies, procedures, completion, or maintenance status."
     )
     try:
         raw_reply = await generate_structured_reply(prompt, system_prompt)
-        proposed = ManualClaimReply.model_validate_json(raw_reply)
+        proposed = ManualSelectionReply.model_validate_json(raw_reply)
     except ValidationError:
         return "I found authorised manual evidence, but could not generate a validated summary. Please review the sources below."
 
-    validation = validate_manual_claim_links(
-        [claim.model_dump() for claim in proposed.claims], manual_evidence,
-    )
-    claims = [item["claim"] for item in validation["validated_claims"]]
-    if not claims:
+    sentences_by_chunk = {chunk["chunk_id"]: chunk["sentences"] for chunk in chunks}
+    selected: list[str] = []
+    for selection in proposed.selections:
+        sentences = sentences_by_chunk.get(selection.chunk_id)
+        if sentences is None:
+            continue
+        for index in selection.sentence_indexes:
+            if 0 <= index < len(sentences):
+                selected.append(sentences[index])
+    if not selected:
         return "No directly supported manual claim was produced from the authorised evidence. Please review the sources below."
-    return "\n".join(dict.fromkeys(claims))
+    return "\n".join(dict.fromkeys(selected))
 
 
 async def _compose_evidence_answer(message: str, bundle: EvidenceBundle) -> str:
@@ -519,6 +531,24 @@ def _manual_evidence(bundle: EvidenceBundle) -> list[dict[str, Any]] | None:
     return result.evidence.get("manual_evidence") if result is not None else None
 
 
+async def _manual_fallback_result(
+    message: str,
+    machine_id: str,
+    user: AuthContext,
+) -> OrchestrationResult:
+    """Use authorised documentation instead of an ungrounded machine reply."""
+    plan = OrchestrationPlan(requests=[
+        AgentRequest(agent="manuals", operation="search", parameters={"query": message, "limit": 5}),
+    ])
+    bundle = await _execute_plan(plan, message, machine_id, user)
+    return OrchestrationResult(
+        _result_agents(bundle),
+        await _compose_evidence_answer(message, bundle),
+        manual_evidence=_manual_evidence(bundle),
+        structured_data=bundle.structured_data,
+    )
+
+
 async def handle_chat(
     message: str,
     user: AuthContext,
@@ -550,8 +580,18 @@ async def handle_chat(
         )
 
     intent = classify_intent(message)
-    planner_decision = await decide_question(message) if planner_enabled else None
+    try:
+        planner_decision = await decide_question(message) if planner_enabled else None
+    except InvalidPlannerOutputError:
+        if target := _machine_id(message, machine_id):
+            return await _manual_fallback_result(message, target, user)
+        return OrchestrationResult(
+            None,
+            "I could not safely create an evidence plan. Please rephrase the request with the relevant machine, alarm, ticket, order, or quote identifier.",
+        )
     if planner_decision is not None and planner_decision.action == "answer_without_evidence":
+        if target := _machine_id(message, machine_id):
+            return await _manual_fallback_result(message, target, user)
         return OrchestrationResult(None, await generate_chat_reply(message))
     if intent == "general" and planner_decision is None:
         return OrchestrationResult(None, await generate_chat_reply(message))
