@@ -7,7 +7,7 @@ import pytest
 
 import core.orchestrator as orchestrator
 from core.auth import AuthContext
-from core.contracts import AgentResult, ContextualPlannerDecision, ConversationTurn, OrchestrationPlan
+from core.contracts import AgentRequest, AgentResult, ContextualPlannerDecision, ConversationTurn, OrchestrationPlan
 from core.planner import InvalidPlannerOutputError
 
 
@@ -373,6 +373,41 @@ def test_iot_count_plan_is_executed_through_the_registry(monkeypatch: pytest.Mon
     assert bundle.structured_data == {"machine_id": "MCH-0001"}
     assert bundle.composer_evidence[0]["evidence"] == {"occurrences": 4}
     execute.assert_awaited_once()
+
+
+def test_execute_plan_runs_independent_requests_concurrently(monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = OrchestrationPlan(requests=[
+        AgentRequest(agent="iot", operation="recent_alarms"),
+        AgentRequest(agent="manuals", operation="search", parameters={"query": "safety"}),
+    ])
+    both_started = asyncio.Event()
+    release = asyncio.Event()
+    started: list[str] = []
+
+    async def execute(request: AgentRequest, _context: object) -> AgentResult:
+        started.append(request.operation)
+        if len(started) == 2:
+            both_started.set()
+        await release.wait()
+        return AgentResult(agent=request.agent, operation=request.operation, evidence={"operation": request.operation})
+
+    monkeypatch.setattr(orchestrator.OPERATION_REGISTRY, "execute", execute)
+
+    async def run() -> orchestrator.EvidenceBundle:
+        task = asyncio.create_task(orchestrator._execute_plan(
+            plan,
+            "Find safety information and recent alarms.",
+            "MCH-0001",
+            AuthContext("USR-001", "CMP-001", "full"),
+        ))
+        await asyncio.wait_for(both_started.wait(), timeout=0.2)
+        release.set()
+        return await task
+
+    bundle = asyncio.run(run())
+
+    assert started == ["recent_alarms", "search"]
+    assert [result.operation for result in bundle.results] == ["recent_alarms", "search"]
 
 
 def test_orchestrator_uses_the_deterministic_plan_only_as_a_fallback() -> None:

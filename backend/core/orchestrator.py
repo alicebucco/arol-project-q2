@@ -1,5 +1,6 @@
 """Intent routing and response composition for the conversational API."""
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass
@@ -282,7 +283,13 @@ async def _execute_plan(
         else None
     )
     context = OperationContext(user=user, machine_id=target)
-    results = [await OPERATION_REGISTRY.execute(request, context) for request in plan.requests]
+    # Every request in the current plan contract is independent: no request can
+    # consume another request's output. ``gather`` starts their read-only
+    # evidence retrieval concurrently while retaining the planner's order in
+    # the resulting list for deterministic composition and frontend data.
+    results = await asyncio.gather(
+        *(OPERATION_REGISTRY.execute(request, context) for request in plan.requests)
+    )
 
     structured_data: dict[str, Any] = {}
     composer_evidence: list[dict[str, Any]] = []
