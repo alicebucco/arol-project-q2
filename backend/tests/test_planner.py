@@ -9,6 +9,7 @@ from core.operation_registry import OPERATION_REGISTRY
 from core.planner import (
     PLANNER_DECISION_SYSTEM_PROMPT,
     CONTEXTUAL_PLANNER_SYSTEM_PROMPT,
+    MANUALS_SELECTION_POLICY,
     InvalidPlannerOutputError,
     build_contextual_planner_prompt,
     decide_contextual_question,
@@ -28,6 +29,10 @@ def test_planner_prompt_exposes_only_the_registry_catalogue() -> None:
     assert '"operation": "count_alarms"' in prompt
     assert "handler" not in prompt
     assert "Return exactly one JSON object" in PLANNER_DECISION_SYSTEM_PROMPT
+    assert MANUALS_SELECTION_POLICY in PLANNER_DECISION_SYSTEM_PROMPT
+    assert MANUALS_SELECTION_POLICY in CONTEXTUAL_PLANNER_SYSTEM_PROMPT
+    manuals_search = next(item for item in catalogue if item["agent"] == "manuals" and item["operation"] == "search")
+    assert "default documented-evidence operation" in manuals_search["description"]
 
 
 def test_planner_decision_must_be_strict_json_matching_the_contract() -> None:

@@ -194,7 +194,7 @@ def test_registry_exposes_a_non_executable_catalogue_for_the_planner() -> None:
     catalogue = operation_registry.OPERATION_REGISTRY.planner_catalog()
     manuals_search = next(item for item in catalogue if item["agent"] == "manuals" and item["operation"] == "search")
 
-    assert "machine-manual" in manuals_search["description"]
+    assert "default documented-evidence operation" in manuals_search["description"]
     assert manuals_search["requires_machine_context"] is True
     assert manuals_search["parameters_schema"]["properties"]["query"]["minLength"] == 1
     assert "handler" not in manuals_search

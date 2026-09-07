@@ -23,6 +23,18 @@ class InvalidPlannerOutputError(ValueError):
     """The model response is not a valid bounded orchestration plan."""
 
 
+MANUALS_SELECTION_POLICY = """
+Manuals selection policy: for a machine-specific question about requirements,
+roles, safety, procedures, configuration, component behaviour, technical explanations,
+or how to address an issue, include manuals.search as the authoritative documented-evidence
+source. Combine it with IoT, Service, or Orders whenever their records require documented
+interpretation. If no narrower specialised operation directly answers a machine-specific
+request, prefer manuals.search instead of answering from general knowledge. Do not use
+manuals.search for a pure count, status, or list already answered by operational or
+commercial records, or for general platform-capability questions.
+"""
+
+
 PLANNER_DECISION_SYSTEM_PROMPT = """You decide how the AROL Customer Platform should handle a user question.
 Return exactly one JSON object and no Markdown, explanation, or additional keys.
 The object must have one of these shapes:
@@ -37,7 +49,7 @@ operations, parameters, IDs, dates, database queries, or permissions. Use at
 most ten independent requests involving no more than four distinct agents, and
 preserve explicit filters stated by the user. The decision maker does not
 answer the user or retrieve evidence.
-"""
+""" + MANUALS_SELECTION_POLICY
 
 
 CONTEXTUAL_PLANNER_SYSTEM_PROMPT = """You plan a follow-up question for the AROL Customer Platform.
@@ -56,7 +68,7 @@ parameters. If a required reference is ambiguous, return ask_clarification.
 For retrieve_evidence, use only operations and parameters from the supplied catalogue. A follow-up asking for
 more about one alarm must use the `alarm_guidance` intent and retrieve that alarm's meaning, filtered recent
 events, and a manual search whose query contains the same code. The decision maker does not retrieve evidence
-or answer the user."""
+or answer the user.""" + MANUALS_SELECTION_POLICY
 
 
 ALARM_CODE_REFERENCE_PATTERN = re.compile(r"\bAL\d{3}_[A-Z0-9_]+\b", re.IGNORECASE)
