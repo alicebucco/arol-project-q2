@@ -50,9 +50,9 @@ exceptions; HTTP endpoints map these to 404.
 ## Existing callers and HTTP compatibility
 
 `orders()` and `quotes()` remain list-returning compatibility wrappers, with default
-20 and the same optional filters. New orchestrator work should use `search_orders()`
-and `search_quotes()` to receive completeness metadata. The current orchestrator is
-unchanged and still explicitly requests 10 through the compatibility wrappers.
+20 and the same optional filters. The operation registry uses `search_orders()` and
+`search_quotes()` so orchestrated evidence preserves filters and completeness
+metadata while retaining list-shaped chat data for the existing frontend.
 
 `GET /orders` and `GET /quotes` preserve list response bodies and accept the search
 filters. Completeness is exposed through `X-Total-Count`, `X-Returned-Count`,

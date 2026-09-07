@@ -146,6 +146,43 @@ def test_registry_rejects_unknown_operations_and_operation_specific_parameters()
     assert definition.requires_machine_context is False
     assert parameters.quote_id == "QTE-1"
 
+    definition, parameters = OPERATION_REGISTRY.validate(
+        AgentRequest(
+            agent="service",
+            operation="maintenance_tickets",
+            parameters={"ticket_status": "Open", "priority": "High", "start_date": "2026-01-01"},
+        )
+    )
+    assert definition.requires_machine_context is True
+    assert parameters.ticket_status == "Open"
+    assert parameters.start_date.isoformat() == "2026-01-01"
+
+    definition, parameters = OPERATION_REGISTRY.validate(
+        AgentRequest(agent="service", operation="ticket_detail", parameters={"ticket_id": "TKT-1"})
+    )
+    assert definition.requires_machine_context is True
+    assert parameters.ticket_id == "TKT-1"
+
+    definition, parameters = OPERATION_REGISTRY.validate(
+        AgentRequest(
+            agent="orders",
+            operation="orders",
+            parameters={"machine_id": "MCH-0001", "shipment_status": "Delivered"},
+        )
+    )
+    assert definition.requires_machine_context is False
+    assert parameters.machine_id == "MCH-0001"
+
+    definition, parameters = OPERATION_REGISTRY.validate(
+        AgentRequest(
+            agent="orders",
+            operation="quotes",
+            parameters={"revision_status": "Approved", "end_date": "2026-12-31"},
+        )
+    )
+    assert definition.requires_machine_context is False
+    assert parameters.end_date.isoformat() == "2026-12-31"
+
 
 def test_registry_exposes_a_non_executable_catalogue_for_the_planner() -> None:
     catalogue = operation_registry.OPERATION_REGISTRY.planner_catalog()
@@ -229,3 +266,91 @@ def test_registry_preserves_manual_alarm_code_match_metadata(monkeypatch) -> Non
     assert result.evidence["manual_evidence"][0]["chunk_id"] == "manual-p32-1"
     assert "content" not in result.evidence["manual_evidence"][0]
     agent_operation.assert_awaited_once_with("MCH-0001", "AL017_LOW_AIR_PRESSURE", user, 5)
+
+
+def test_registry_uses_final_list_operations_and_preserves_chat_arrays(monkeypatch) -> None:
+    tickets = AsyncMock(return_value={
+        "items": [{"ticket_id": "TKT-1"}],
+        "total_count": 3,
+        "returned_count": 1,
+        "is_truncated": True,
+        "limit": 1,
+    })
+    orders = AsyncMock(return_value={
+        "items": [{"order_id": "ORD-1"}],
+        "total_count": 2,
+        "returned_count": 1,
+        "is_truncated": True,
+        "limit": 1,
+    })
+    quotes = AsyncMock(return_value={
+        "items": [{"quote_id": "QTE-1"}],
+        "total_count": 1,
+        "returned_count": 1,
+        "is_truncated": False,
+        "limit": 1,
+    })
+    monkeypatch.setattr(operation_registry, "search_tickets", tickets)
+    monkeypatch.setattr(operation_registry, "search_orders", orders)
+    monkeypatch.setattr(operation_registry, "search_quotes", quotes)
+    user = AuthContext("USR-001", "CMP-001", "full")
+    machine_context = OperationContext(user=user, machine_id="MCH-0001")
+    company_context = OperationContext(user=user)
+
+    ticket_result = asyncio.run(operation_registry.OPERATION_REGISTRY.execute(
+        AgentRequest(
+            agent="service",
+            operation="maintenance_tickets",
+            parameters={"limit": 1, "ticket_status": "Open"},
+        ),
+        machine_context,
+    ))
+    order_result = asyncio.run(operation_registry.OPERATION_REGISTRY.execute(
+        AgentRequest(agent="orders", operation="orders", parameters={"limit": 1}),
+        company_context,
+    ))
+    quote_result = asyncio.run(operation_registry.OPERATION_REGISTRY.execute(
+        AgentRequest(agent="orders", operation="quotes", parameters={"limit": 1}),
+        company_context,
+    ))
+
+    assert ticket_result.structured_data == {
+        "machine_id": "MCH-0001",
+        "maintenance_tickets": [{"ticket_id": "TKT-1"}],
+        "maintenance_tickets_metadata": {
+            "total_count": 3, "returned_count": 1, "is_truncated": True, "limit": 1,
+        },
+    }
+    assert order_result.structured_data == {
+        "orders": [{"order_id": "ORD-1"}],
+        "orders_metadata": {
+            "total_count": 2, "returned_count": 1, "is_truncated": True, "limit": 1,
+        },
+    }
+    assert quote_result.structured_data == {
+        "quotes": [{"quote_id": "QTE-1"}],
+        "quotes_metadata": {
+            "total_count": 1, "returned_count": 1, "is_truncated": False, "limit": 1,
+        },
+    }
+    assert tickets.await_args.args == ("MCH-0001", user)
+    assert tickets.await_args.kwargs["ticket_status"] == "Open"
+    assert orders.await_args.args == (user,)
+    assert quotes.await_args.args == (user,)
+
+
+def test_registry_uses_final_ticket_detail_operation(monkeypatch) -> None:
+    detail_operation = AsyncMock(return_value={"ticket_id": "TKT-1", "ticket_status": "Open"})
+    monkeypatch.setattr(operation_registry, "ticket_detail", detail_operation)
+    user = AuthContext("USR-001", "CMP-001", "full")
+
+    result = asyncio.run(operation_registry.OPERATION_REGISTRY.execute(
+        AgentRequest(agent="service", operation="ticket_detail", parameters={"ticket_id": "TKT-1"}),
+        OperationContext(user=user, machine_id="MCH-0001"),
+    ))
+
+    assert result.structured_data == {
+        "machine_id": "MCH-0001",
+        "ticket_detail": {"ticket_id": "TKT-1", "ticket_status": "Open"},
+    }
+    detail_operation.assert_awaited_once_with("MCH-0001", user, "TKT-1")

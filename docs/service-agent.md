@@ -22,8 +22,9 @@ A ticket absent from the authorised machine raises `TicketNotFoundError`; no
 resolution narrative or completion date is inferred from ticket status.
 
 `maintenance_tickets(machine_id, user, limit=20, **filters)` remains a list-returning
-compatibility wrapper. New orchestrator work should call `search_tickets` for
-completeness. The old orchestrator is unchanged and still explicitly passes 10.
+compatibility wrapper. The operation registry uses `search_tickets()` for filtered
+ticket evidence and completeness metadata, and exposes `ticket_detail()` for one
+authorised machine-scoped ticket.
 
 `GET /machines/{machine_id}/maintenance-tickets` accepts the filters and preserves
 its list response body. Headers `X-Total-Count`, `X-Returned-Count`,

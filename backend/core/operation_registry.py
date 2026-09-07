@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -29,11 +29,11 @@ from agents.iot import (
 from agents.manuals import maintenance_requirements, search_with_match_status
 from agents.orders import (
     order_detail,
-    orders,
     quote_history,
-    quotes,
+    search_orders,
+    search_quotes,
 )
-from agents.service import maintenance_tickets
+from agents.service import search_tickets, ticket_detail
 from core.alarm_codes import alarm_meaning, normalise_alarm_code
 from core.auth import AuthContext
 from core.contracts import AgentName, AgentRequest, AgentResult
@@ -135,10 +135,57 @@ class ManualSearchParameters(OperationParameters):
 
 class MaintenanceTicketsParameters(OperationParameters):
     limit: int = Field(default=10, ge=1, le=100)
+    ticket_id: str | None = Field(default=None, max_length=100)
+    alarm_id: str | None = Field(default=None, max_length=100)
+    ticket_status: Literal["Open", "In progress", "Waiting for parts", "Resolved", "Closed"] | None = None
+    ticket_type: Literal[
+        "Remote troubleshooting", "On-site service", "Spare parts request",
+        "Scheduled maintenance", "Overhaul", "Size change assistance",
+    ] | None = None
+    priority: Literal["Critical", "High", "Medium", "Low"] | None = None
+    owner_role: Literal[
+        "Line Operator", "Maintenance Man", "Plant Maintenance Manager", "AROL Technical Service",
+    ] | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+
+    @model_validator(mode="after")
+    def valid_date_range(self) -> "MaintenanceTicketsParameters":
+        if self.start_date is not None and self.end_date is not None and self.start_date > self.end_date:
+            raise ValueError("A date range cannot end before it starts.")
+        return self
 
 
-class ListRecordsParameters(OperationParameters):
+class OrdersParameters(OperationParameters):
     limit: int = Field(default=10, ge=1, le=100)
+    machine_id: str | None = Field(default=None, max_length=100)
+    order_id: str | None = Field(default=None, max_length=100)
+    quote_id: str | None = Field(default=None, max_length=100)
+    order_status: Literal["Confirmed", "In production", "Delivered", "Closed"] | None = None
+    shipment_status: Literal["In production", "Ready for shipment", "Delivered", "Installed"] | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+
+    @model_validator(mode="after")
+    def valid_date_range(self) -> "OrdersParameters":
+        if self.start_date is not None and self.end_date is not None and self.start_date > self.end_date:
+            raise ValueError("A date range cannot end before it starts.")
+        return self
+
+
+class QuotesParameters(OperationParameters):
+    limit: int = Field(default=10, ge=1, le=100)
+    machine_id: str | None = Field(default=None, max_length=100)
+    quote_id: str | None = Field(default=None, max_length=100)
+    revision_status: Literal["Draft", "Submitted", "Superseded", "Approved", "Rejected", "Expired"] | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+
+    @model_validator(mode="after")
+    def valid_date_range(self) -> "QuotesParameters":
+        if self.start_date is not None and self.end_date is not None and self.start_date > self.end_date:
+            raise ValueError("A date range cannot end before it starts.")
+        return self
 
 
 class OrderDetailParameters(OperationParameters):
@@ -147,6 +194,10 @@ class OrderDetailParameters(OperationParameters):
 
 class QuoteHistoryParameters(OperationParameters):
     quote_id: str = Field(min_length=1, max_length=100)
+
+
+class TicketDetailParameters(OperationParameters):
+    ticket_id: str = Field(min_length=1, max_length=100)
 
 
 @dataclass(frozen=True)
@@ -354,22 +405,38 @@ async def _maintenance_requirements(parameters: OperationParameters, context: Op
 async def _maintenance_tickets(parameters: OperationParameters, context: OperationContext) -> AgentResult:
     assert isinstance(parameters, MaintenanceTicketsParameters)
     machine_id = _machine(context)
-    tickets = await maintenance_tickets(machine_id, context.user, parameters.limit)
-    evidence = {"machine_id": machine_id, "maintenance_tickets": tickets}
+    result = await search_tickets(machine_id, context.user, **parameters.model_dump())
+    metadata = {
+        key: result[key]
+        for key in ("total_count", "returned_count", "is_truncated", "limit")
+    }
+    evidence = {
+        "machine_id": machine_id,
+        "maintenance_tickets": result["items"],
+        "maintenance_tickets_metadata": metadata,
+    }
     return agent_result("service", "maintenance_tickets", evidence, structured_data=evidence)
 
 
 async def _orders(parameters: OperationParameters, context: OperationContext) -> AgentResult:
-    assert isinstance(parameters, ListRecordsParameters)
-    records = await orders(context.user, parameters.limit)
-    evidence = {"orders": records}
+    assert isinstance(parameters, OrdersParameters)
+    result = await search_orders(context.user, **parameters.model_dump())
+    metadata = {
+        key: result[key]
+        for key in ("total_count", "returned_count", "is_truncated", "limit")
+    }
+    evidence = {"orders": result["items"], "orders_metadata": metadata}
     return agent_result("orders", "orders", evidence, structured_data=evidence)
 
 
 async def _quotes(parameters: OperationParameters, context: OperationContext) -> AgentResult:
-    assert isinstance(parameters, ListRecordsParameters)
-    records = await quotes(context.user, parameters.limit)
-    evidence = {"quotes": records}
+    assert isinstance(parameters, QuotesParameters)
+    result = await search_quotes(context.user, **parameters.model_dump())
+    metadata = {
+        key: result[key]
+        for key in ("total_count", "returned_count", "is_truncated", "limit")
+    }
+    evidence = {"quotes": result["items"], "quotes_metadata": metadata}
     return agent_result("orders", "quotes", evidence, structured_data=evidence)
 
 
@@ -385,6 +452,14 @@ async def _quote_history(parameters: OperationParameters, context: OperationCont
     history = await quote_history(context.user, parameters.quote_id)
     evidence = {"quote_history": history}
     return agent_result("orders", "quote_history", evidence, structured_data=evidence)
+
+
+async def _ticket_detail(parameters: OperationParameters, context: OperationContext) -> AgentResult:
+    assert isinstance(parameters, TicketDetailParameters)
+    machine_id = _machine(context)
+    detail = await ticket_detail(machine_id, context.user, parameters.ticket_id)
+    evidence = {"machine_id": machine_id, "ticket_detail": detail}
+    return agent_result("service", "ticket_detail", evidence, structured_data=evidence)
 
 
 OPERATION_REGISTRY = OperationRegistry(
@@ -403,8 +478,9 @@ OPERATION_REGISTRY = OperationRegistry(
         OperationDefinition("manuals", "search", ManualSearchParameters, True, _search_manuals, "Find relevant machine-manual excerpts for procedures, safety guidance, configuration, troubleshooting, or technical requirements."),
         OperationDefinition("manuals", "maintenance_requirements", OperationParameters, True, _maintenance_requirements, "Return cited working-hour and operating-hour maintenance requirements from the selected machine's manual."),
         OperationDefinition("service", "maintenance_tickets", MaintenanceTicketsParameters, True, _maintenance_tickets, "Retrieve maintenance tickets and their statuses for the selected machine."),
-        OperationDefinition("orders", "orders", ListRecordsParameters, False, _orders, "Retrieve the authenticated company’s recent orders and shipment statuses."),
-        OperationDefinition("orders", "quotes", ListRecordsParameters, False, _quotes, "Retrieve the authenticated company’s recent quotes, revisions, validity, and totals."),
+        OperationDefinition("service", "ticket_detail", TicketDetailParameters, True, _ticket_detail, "Retrieve one authorised maintenance ticket for the selected machine."),
+        OperationDefinition("orders", "orders", OrdersParameters, False, _orders, "Retrieve the authenticated company's orders with filters, shipment statuses, and list-completeness metadata."),
+        OperationDefinition("orders", "quotes", QuotesParameters, False, _quotes, "Retrieve the authenticated company's quotes with filters, revisions, validity, totals, and list-completeness metadata."),
         OperationDefinition("orders", "order_detail", OrderDetailParameters, False, _order_detail, "Retrieve the authenticated company's detail for one order, including fulfilment and approved quote content."),
         OperationDefinition("orders", "quote_history", QuoteHistoryParameters, False, _quote_history, "Retrieve the authenticated company's revision history for one quote."),
     ]
