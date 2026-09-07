@@ -61,6 +61,7 @@ def test_decide_question_returns_a_validated_retrieval_decision(monkeypatch) -> 
         '{"agent": "iot", "operation": "count_alarms", "parameters": {}}]}}'
     ))
     monkeypatch.setattr(planner, "generate_structured_reply", llm)
+    monkeypatch.setattr(planner, "retrieve_planner_catalogue", AsyncMock(return_value=OPERATION_REGISTRY.planner_catalog()))
 
     decision = asyncio.run(planner.decide_question("How many alarms occurred?"))
 
@@ -76,9 +77,47 @@ def test_decide_question_rejects_unknown_registry_requests(monkeypatch) -> None:
         '{"agent": "iot", "operation": "not_registered", "parameters": {}}]}}'
     ))
     monkeypatch.setattr(planner, "generate_structured_reply", llm)
+    monkeypatch.setattr(planner, "retrieve_planner_catalogue", AsyncMock(return_value=OPERATION_REGISTRY.planner_catalog()))
 
     with pytest.raises(InvalidPlannerOutputError):
         asyncio.run(planner.decide_question("Do something with alarms"))
+
+
+def test_decide_question_uses_semantic_candidates_and_keeps_manual_search(monkeypatch) -> None:
+    candidates = [
+        item
+        for item in OPERATION_REGISTRY.planner_catalog()
+        if (item["agent"], item["operation"]) == ("iot", "repeated_alarm_patterns")
+    ]
+    llm = AsyncMock(return_value='{"action": "answer_without_evidence"}')
+    retrieve = AsyncMock(return_value=candidates)
+    monkeypatch.setattr(planner, "retrieve_planner_catalogue", retrieve)
+    monkeypatch.setattr(planner, "generate_structured_reply", llm)
+
+    asyncio.run(planner.decide_question("Why are alarms repeating?"))
+
+    prompt = llm.await_args.args[0]
+    assert '"operation": "repeated_alarm_patterns"' in prompt
+    assert '"agent": "manuals"' in prompt
+    assert '"operation": "search"' in prompt
+    assert '"operation": "company_machines"' not in prompt
+    retrieve.assert_awaited_once()
+
+
+def test_decide_question_falls_back_to_complete_catalogue_when_retrieval_is_unavailable(monkeypatch) -> None:
+    llm = AsyncMock(return_value='{"action": "answer_without_evidence"}')
+    monkeypatch.setattr(
+        planner,
+        "retrieve_planner_catalogue",
+        AsyncMock(side_effect=planner.CapabilityRetrievalUnavailableError("database unavailable")),
+    )
+    monkeypatch.setattr(planner, "generate_structured_reply", llm)
+
+    asyncio.run(planner.decide_question("What can you do?"))
+
+    prompt = llm.await_args.args[0]
+    assert '"operation": "repeated_alarm_patterns"' in prompt
+    assert '"operation": "company_machines"' in prompt
 
 
 def test_contextual_planner_preserves_an_inherited_alarm_across_the_evidence_plan(monkeypatch) -> None:
@@ -93,6 +132,8 @@ def test_contextual_planner_preserves_an_inherited_alarm_across_the_evidence_pla
         ']}}'
     ))
     monkeypatch.setattr(planner, "generate_structured_reply", llm)
+    retrieve = AsyncMock(return_value=OPERATION_REGISTRY.planner_catalog())
+    monkeypatch.setattr(planner, "retrieve_planner_catalogue", retrieve)
     history = [
         ConversationTurn(role="user", content=f"When did {alarm_code} last occur?"),
         ConversationTurn(role="assistant", content="It last occurred at 01:56 UTC."),
@@ -115,6 +156,7 @@ def test_contextual_planner_preserves_an_inherited_alarm_across_the_evidence_pla
     assert "Can you tell me more about that alarm?" in prompt
     assert "unrelated identifiers that merely appear in older turns" in CONTEXTUAL_PLANNER_SYSTEM_PROMPT
     assert llm.await_args.args[1] == CONTEXTUAL_PLANNER_SYSTEM_PROMPT
+    assert alarm_code in retrieve.await_args.args[0]
 
 
 def test_contextual_planner_rejects_alarm_guidance_that_loses_the_inherited_code(monkeypatch) -> None:
@@ -125,6 +167,7 @@ def test_contextual_planner_rejects_alarm_guidance_that_loses_the_inherited_code
         '"plan":{"requests":[{"agent":"iot","operation":"recent_alarms","parameters":{"limit":5}}]}}'
     ))
     monkeypatch.setattr(planner, "generate_structured_reply", llm)
+    monkeypatch.setattr(planner, "retrieve_planner_catalogue", AsyncMock(return_value=OPERATION_REGISTRY.planner_catalog()))
     history = [
         ConversationTurn(role="user", content=f"When did {alarm_code} last occur?"),
         ConversationTurn(role="assistant", content="It last occurred at 01:56 UTC."),
@@ -149,6 +192,7 @@ def test_contextual_planner_retries_once_after_an_invalid_response(monkeypatch) 
     )
     llm = AsyncMock(side_effect=["not valid JSON", valid_response])
     monkeypatch.setattr(planner, "generate_structured_reply", llm)
+    monkeypatch.setattr(planner, "retrieve_planner_catalogue", AsyncMock(return_value=OPERATION_REGISTRY.planner_catalog()))
     history = [
         ConversationTurn(role="user", content=f"When did {alarm_code} last occur?"),
         ConversationTurn(role="assistant", content="It last occurred at 01:56 UTC."),

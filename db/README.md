@@ -4,6 +4,21 @@
 Excel dataset. Local RAG storage is added separately by
 `init/003-create-manual-chunks.sql`.
 
+## Planner capability catalogue
+
+`init/005-create-operation-capabilities.sql` stores an embedding for each
+planner-safe operation exposed by the backend registry. It contains only
+operation metadata, not user questions, manual excerpts, tenant data, or agent
+results. After changing the operation registry, synchronise the catalogue:
+
+```bash
+docker compose exec backend python /db/scripts/index_operation_capabilities.py
+```
+
+The script hashes each generated capability document and recomputes embeddings
+only for new or changed operations. Use `--dry-run` to inspect the capability
+IDs without writing to PostgreSQL.
+
 When the course workbook is available locally in `data/`, start the database
 and run the importer from the temporary Python container:
 

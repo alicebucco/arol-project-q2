@@ -55,6 +55,23 @@ class OperationParameters(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+def _normalise_identifier(
+    value: str | None,
+    *,
+    prefix: str,
+    field_name: str,
+) -> str | None:
+    """Accept only a non-empty identifier of the expected resource family."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not (identifier := value.strip()):
+        raise ValueError(f"{field_name} must be a non-empty string.")
+    identifier = identifier.upper()
+    if not identifier.startswith(prefix):
+        raise ValueError(f"{field_name} must start with {prefix}.")
+    return identifier
+
+
 class TimeRangeParameters(OperationParameters):
     start_time: datetime | None = None
     end_time: datetime | None = None
@@ -113,9 +130,8 @@ class AlarmsByIdParameters(OperationParameters):
     def normalise_alarm_ids(cls, values: list[str]) -> list[str]:
         normalised: list[str] = []
         for value in values:
-            if not isinstance(value, str) or not (alarm_id := value.strip()):
-                raise ValueError("Each alarm ID must be a non-empty string.")
-            alarm_id = alarm_id.upper()
+            alarm_id = _normalise_identifier(value, prefix="ALM-", field_name="Each alarm ID")
+            assert alarm_id is not None
             if alarm_id not in normalised:
                 normalised.append(alarm_id)
         return normalised
@@ -168,6 +184,16 @@ class MaintenanceTicketsParameters(OperationParameters):
     start_date: date | None = None
     end_date: date | None = None
 
+    @field_validator("ticket_id")
+    @classmethod
+    def normalise_ticket_id(cls, value: str | None) -> str | None:
+        return _normalise_identifier(value, prefix="TCK-", field_name="ticket_id")
+
+    @field_validator("alarm_id")
+    @classmethod
+    def normalise_alarm_id(cls, value: str | None) -> str | None:
+        return _normalise_identifier(value, prefix="ALM-", field_name="alarm_id")
+
     @model_validator(mode="after")
     def valid_date_range(self) -> "MaintenanceTicketsParameters":
         if self.start_date is not None and self.end_date is not None and self.start_date > self.end_date:
@@ -185,6 +211,21 @@ class OrdersParameters(OperationParameters):
     start_date: date | None = None
     end_date: date | None = None
 
+    @field_validator("machine_id")
+    @classmethod
+    def normalise_machine_id(cls, value: str | None) -> str | None:
+        return _normalise_identifier(value, prefix="MCH-", field_name="machine_id")
+
+    @field_validator("order_id")
+    @classmethod
+    def normalise_order_id(cls, value: str | None) -> str | None:
+        return _normalise_identifier(value, prefix="ORD-", field_name="order_id")
+
+    @field_validator("quote_id")
+    @classmethod
+    def normalise_quote_id(cls, value: str | None) -> str | None:
+        return _normalise_identifier(value, prefix="QTE-", field_name="quote_id")
+
     @model_validator(mode="after")
     def valid_date_range(self) -> "OrdersParameters":
         if self.start_date is not None and self.end_date is not None and self.start_date > self.end_date:
@@ -200,6 +241,16 @@ class QuotesParameters(OperationParameters):
     start_date: date | None = None
     end_date: date | None = None
 
+    @field_validator("machine_id")
+    @classmethod
+    def normalise_machine_id(cls, value: str | None) -> str | None:
+        return _normalise_identifier(value, prefix="MCH-", field_name="machine_id")
+
+    @field_validator("quote_id")
+    @classmethod
+    def normalise_quote_id(cls, value: str | None) -> str | None:
+        return _normalise_identifier(value, prefix="QTE-", field_name="quote_id")
+
     @model_validator(mode="after")
     def valid_date_range(self) -> "QuotesParameters":
         if self.start_date is not None and self.end_date is not None and self.start_date > self.end_date:
@@ -210,13 +261,34 @@ class QuotesParameters(OperationParameters):
 class OrderDetailParameters(OperationParameters):
     order_id: str = Field(min_length=1, max_length=100)
 
+    @field_validator("order_id")
+    @classmethod
+    def normalise_order_id(cls, value: str) -> str:
+        normalised = _normalise_identifier(value, prefix="ORD-", field_name="order_id")
+        assert normalised is not None
+        return normalised
+
 
 class QuoteHistoryParameters(OperationParameters):
     quote_id: str = Field(min_length=1, max_length=100)
 
+    @field_validator("quote_id")
+    @classmethod
+    def normalise_quote_id(cls, value: str) -> str:
+        normalised = _normalise_identifier(value, prefix="QTE-", field_name="quote_id")
+        assert normalised is not None
+        return normalised
+
 
 class TicketDetailParameters(OperationParameters):
     ticket_id: str = Field(min_length=1, max_length=100)
+
+    @field_validator("ticket_id")
+    @classmethod
+    def normalise_ticket_id(cls, value: str) -> str:
+        normalised = _normalise_identifier(value, prefix="TCK-", field_name="ticket_id")
+        assert normalised is not None
+        return normalised
 
 
 @dataclass(frozen=True)
@@ -512,10 +584,10 @@ OPERATION_REGISTRY = OperationRegistry(
         OperationDefinition("manuals", "search", ManualSearchParameters, True, _search_manuals, "Search authoritative selected-machine manual excerpts. Prefer it as the default documented-evidence operation for requirements, roles, safety, procedures, configuration, component behaviour, and technical explanations when no narrower operation directly answers the question. Combine it with IoT, Service, or Orders when their records need documented interpretation; do not use it for a pure count, status, or list."),
         OperationDefinition("manuals", "maintenance_requirements", OperationParameters, True, _maintenance_requirements, "Return cited working-hour and operating-hour maintenance requirements from the selected machine's manual."),
         OperationDefinition("service", "maintenance_tickets", MaintenanceTicketsParameters, True, _maintenance_tickets, "Retrieve maintenance tickets and their statuses for the selected machine."),
-        OperationDefinition("service", "ticket_detail", TicketDetailParameters, True, _ticket_detail, "Retrieve one authorised maintenance ticket for the selected machine."),
-        OperationDefinition("orders", "orders", OrdersParameters, False, _orders, "Retrieve the authenticated company's orders with filters, shipment statuses, and list-completeness metadata."),
-        OperationDefinition("orders", "quotes", QuotesParameters, False, _quotes, "Retrieve the authenticated company's quotes with filters, revisions, validity, totals, and list-completeness metadata."),
-        OperationDefinition("orders", "order_detail", OrderDetailParameters, False, _order_detail, "Retrieve the authenticated company's detail for one order, including fulfilment and approved quote content."),
-        OperationDefinition("orders", "quote_history", QuoteHistoryParameters, False, _quote_history, "Retrieve the authenticated company's revision history for one quote."),
+        OperationDefinition("service", "ticket_detail", TicketDetailParameters, True, _ticket_detail, "Retrieve one authorised selected-machine maintenance ticket by its exact TCK- identifier."),
+        OperationDefinition("orders", "orders", OrdersParameters, False, _orders, "Retrieve the authenticated company's orders with filters, shipment statuses, and list-completeness metadata. Use an ORD- identifier only in order_id and a QTE- identifier only in quote_id."),
+        OperationDefinition("orders", "quotes", QuotesParameters, False, _quotes, "Retrieve the authenticated company's quotes with filters, revisions, validity, totals, and list-completeness metadata. Use a QTE- identifier in quote_id."),
+        OperationDefinition("orders", "order_detail", OrderDetailParameters, False, _order_detail, "Retrieve the authenticated company's detail for one order identified by an exact ORD- identifier, including fulfilment and approved quote content."),
+        OperationDefinition("orders", "quote_history", QuoteHistoryParameters, False, _quote_history, "Retrieve the authenticated company's revision history for one quote identified by an exact QTE- identifier."),
     ]
 )

@@ -15,6 +15,7 @@ from core.contracts import (
     OrchestrationPlan,
     PlannerDecision,
 )
+from core.capability_retrieval import CapabilityRetrievalUnavailableError, retrieve_planner_catalogue
 from core.llm import generate_structured_reply
 from core.operation_registry import OPERATION_REGISTRY, OperationRegistry, UnknownOperationError
 
@@ -77,6 +78,7 @@ ALARM_FOLLOW_UP_PATTERN = re.compile(
     re.IGNORECASE,
 )
 CONTEXTUAL_PLANNER_ATTEMPTS = 2
+MAXIMUM_CONTEXTUAL_RETRIEVAL_TEXT = 4_000
 
 
 def build_planner_prompt(message: str, catalogue: list[dict[str, Any]]) -> str:
@@ -145,6 +147,69 @@ def _validate_plan_requests(plan: OrchestrationPlan, registry: OperationRegistry
         raise InvalidPlannerOutputError("The planner requested an unknown operation or invalid parameters.") from error
 
 
+async def _planner_catalogue_for_question(
+    message: str,
+    registry: OperationRegistry,
+) -> list[dict[str, Any]]:
+    """Use semantic candidates when available, without making retrieval a dependency."""
+    complete_catalogue = registry.planner_catalog()
+    try:
+        candidates = await retrieve_planner_catalogue(message, registry)
+    except CapabilityRetrievalUnavailableError:
+        return complete_catalogue
+    return _catalogue_from_candidates(candidates, complete_catalogue)
+
+
+def _catalogue_from_candidates(
+    candidates: list[dict[str, Any]],
+    complete_catalogue: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep semantic candidates bounded while preserving documented evidence."""
+    if not candidates:
+        return complete_catalogue
+    candidates = list(candidates)
+
+    # Keep the documented-evidence operation available to the existing planner
+    # policy even when its embedding is outside the top semantic candidates.
+    manuals_search = next(
+        (
+            item
+            for item in complete_catalogue
+            if item["agent"] == "manuals" and item["operation"] == "search"
+        ),
+        None,
+    )
+    candidate_ids = {f"{item['agent']}.{item['operation']}" for item in candidates}
+    if manuals_search is not None and "manuals.search" not in candidate_ids:
+        candidates.append(manuals_search)
+    return candidates
+
+
+def _contextual_retrieval_text(message: str, history: list[ConversationTurn]) -> str:
+    """Build a bounded semantic query from the current message and recent context."""
+    recent_history = "\n".join(
+        f"{turn.role}: {turn.content}"
+        for turn in history[-4:]
+    )
+    prefix = f"Current question: {message}\nRecent conversation: "
+    available_history = max(0, MAXIMUM_CONTEXTUAL_RETRIEVAL_TEXT - len(prefix))
+    return prefix + recent_history[-available_history:]
+
+
+async def _planner_catalogue_for_contextual_question(
+    message: str,
+    history: list[ConversationTurn],
+    registry: OperationRegistry,
+) -> list[dict[str, Any]]:
+    """Retrieve candidates from untrusted history without treating it as evidence."""
+    complete_catalogue = registry.planner_catalog()
+    try:
+        candidates = await retrieve_planner_catalogue(_contextual_retrieval_text(message, history), registry)
+    except CapabilityRetrievalUnavailableError:
+        return complete_catalogue
+    return _catalogue_from_candidates(candidates, complete_catalogue)
+
+
 def _validate_contextual_bindings(decision: ContextualPlannerDecision, history: list[ConversationTurn], message: str) -> None:
     """Ensure inherited identifiers are real conversation text and survive into the proposed plan."""
 
@@ -198,10 +263,8 @@ async def decide_question(
 ) -> PlannerDecision:
     """Ask the LLM whether evidence is needed and validate any proposed plan."""
 
-    response = await generate_structured_reply(
-        build_planner_prompt(message, registry.planner_catalog()),
-        PLANNER_DECISION_SYSTEM_PROMPT,
-    )
+    catalogue = await _planner_catalogue_for_question(message, registry)
+    response = await generate_structured_reply(build_planner_prompt(message, catalogue), PLANNER_DECISION_SYSTEM_PROMPT)
     decision = parse_planner_decision(response)
     if decision.plan is not None:
         _validate_plan_requests(decision.plan, registry)
@@ -216,7 +279,8 @@ async def decide_contextual_question(
 ) -> ContextualPlannerDecision:
     """Plan one follow-up directly from bounded history and the current message."""
 
-    prompt = build_contextual_planner_prompt(message, history, business_today, registry.planner_catalog())
+    catalogue = await _planner_catalogue_for_contextual_question(message, history, registry)
+    prompt = build_contextual_planner_prompt(message, history, business_today, catalogue)
     last_error: InvalidPlannerOutputError | None = None
     for _ in range(CONTEXTUAL_PLANNER_ATTEMPTS):
         response = await generate_structured_reply(prompt, CONTEXTUAL_PLANNER_SYSTEM_PROMPT)

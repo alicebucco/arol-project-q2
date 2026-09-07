@@ -164,10 +164,10 @@ def test_registry_rejects_unknown_operations_and_operation_specific_parameters()
     assert parameters.start_date.isoformat() == "2026-01-01"
 
     definition, parameters = OPERATION_REGISTRY.validate(
-        AgentRequest(agent="service", operation="ticket_detail", parameters={"ticket_id": "TKT-1"})
+        AgentRequest(agent="service", operation="ticket_detail", parameters={"ticket_id": "TCK-1"})
     )
     assert definition.requires_machine_context is True
-    assert parameters.ticket_id == "TKT-1"
+    assert parameters.ticket_id == "TCK-1"
 
     definition, parameters = OPERATION_REGISTRY.validate(
         AgentRequest(
@@ -188,6 +188,27 @@ def test_registry_rejects_unknown_operations_and_operation_specific_parameters()
     )
     assert definition.requires_machine_context is False
     assert parameters.end_date.isoformat() == "2026-12-31"
+
+
+@pytest.mark.parametrize(
+    ("agent", "operation", "parameters"),
+    [
+        ("iot", "alarms_by_id", {"alarm_ids": ["AL017_LOW_AIR_PRESSURE"]}),
+        ("service", "maintenance_tickets", {"alarm_id": "AL017_LOW_AIR_PRESSURE"}),
+        ("service", "ticket_detail", {"ticket_id": "ORD-2026-0001"}),
+        ("orders", "orders", {"order_id": "QTE-2026-0014"}),
+        ("orders", "quotes", {"quote_id": "ORD-2026-0001"}),
+        ("orders", "order_detail", {"order_id": "QTE-2026-0014"}),
+        ("orders", "quote_history", {"quote_id": "ORD-2026-0001"}),
+    ],
+)
+def test_registry_rejects_identifiers_for_the_wrong_resource(
+    agent: str, operation: str, parameters: dict[str, object]
+) -> None:
+    with pytest.raises(ValidationError):
+        operation_registry.OPERATION_REGISTRY.validate(
+            AgentRequest(agent=agent, operation=operation, parameters=parameters)
+        )
 
 
 def test_registry_exposes_a_non_executable_catalogue_for_the_planner() -> None:
@@ -379,17 +400,17 @@ def test_registry_uses_final_list_operations_and_preserves_chat_arrays(monkeypat
 
 
 def test_registry_uses_final_ticket_detail_operation(monkeypatch) -> None:
-    detail_operation = AsyncMock(return_value={"ticket_id": "TKT-1", "ticket_status": "Open"})
+    detail_operation = AsyncMock(return_value={"ticket_id": "TCK-1", "ticket_status": "Open"})
     monkeypatch.setattr(operation_registry, "ticket_detail", detail_operation)
     user = AuthContext("USR-001", "CMP-001", "full")
 
     result = asyncio.run(operation_registry.OPERATION_REGISTRY.execute(
-        AgentRequest(agent="service", operation="ticket_detail", parameters={"ticket_id": "TKT-1"}),
+        AgentRequest(agent="service", operation="ticket_detail", parameters={"ticket_id": "TCK-1"}),
         OperationContext(user=user, machine_id="MCH-0001"),
     ))
 
     assert result.structured_data == {
         "machine_id": "MCH-0001",
-        "ticket_detail": {"ticket_id": "TKT-1", "ticket_status": "Open"},
+        "ticket_detail": {"ticket_id": "TCK-1", "ticket_status": "Open"},
     }
-    detail_operation.assert_awaited_once_with("MCH-0001", user, "TKT-1")
+    detail_operation.assert_awaited_once_with("MCH-0001", user, "TCK-1")
