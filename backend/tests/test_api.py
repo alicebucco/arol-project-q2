@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 import main
 from core.auth import AuthContext, get_current_user
+from core.data_access import MachineNotFoundError, MachineUnavailableError
 from core.llm import LlmRequestError
 from core.contracts import AgentResult, ConversationTurn
 from core.orchestrator import EvidenceBundle, OrchestrationResult
@@ -346,6 +347,25 @@ def test_chat_success_and_provider_error(client: TestClient, monkeypatch: pytest
     assert failure.json()["detail"] == "The LLM provider could not complete the request."
 
 
+@pytest.mark.parametrize("error", [MachineNotFoundError("MCH-9999"), MachineUnavailableError("MCH-9999")])
+def test_chat_hides_unavailable_machine_existence(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, error: LookupError,
+) -> None:
+    handler = AsyncMock(side_effect=error)
+    monkeypatch.setattr(main, "handle_chat", handler)
+
+    response = client.post("/chat", json={"message": "Show me the recent operational history of MCH-9999.", "machine_id": "MCH-9999"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "answer": "The requested machine is not available in your authorized scope, so I cannot provide machine-specific information.",
+        "agent": None,
+        "sources": [],
+        "data": None,
+    }
+    assert handler.await_args.args[1].hide_machine_existence is True
+
+
 def test_chat_forwards_bounded_history_to_the_orchestrator(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     handler = AsyncMock(return_value=OrchestrationResult(None, "Please clarify which alarm you mean."))
     monkeypatch.setattr(main, "handle_chat", handler)
@@ -361,7 +381,7 @@ def test_chat_forwards_bounded_history_to_the_orchestrator(client: TestClient, m
     assert response.status_code == 200
     handler.assert_awaited_once_with(
         "And yesterday?",
-        FULL_USER,
+        AuthContext("USR-001", "CMP-001", "full", hide_machine_existence=True),
         "MCH-0001",
         [
             ConversationTurn(role="user", content="How many AL017_LOW_AIR_PRESSURE alarms occurred?"),

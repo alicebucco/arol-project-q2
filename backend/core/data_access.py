@@ -13,6 +13,10 @@ class MachineNotFoundError(LookupError):
     """The requested machine identifier does not exist."""
 
 
+class MachineUnavailableError(LookupError):
+    """The requested machine must not disclose whether it exists or is accessible."""
+
+
 class TicketNotFoundError(LookupError):
     """The requested ticket is absent from the authorised machine."""
 
@@ -46,8 +50,12 @@ async def authorize_machine(
             )
             row = await cursor.fetchone()
 
+    if row is None and user.hide_machine_existence:
+        raise MachineUnavailableError(machine_id)
     if row is None:
         raise MachineNotFoundError(machine_id)
+    if user.company_id != row[1] and user.hide_machine_existence:
+        raise MachineUnavailableError(machine_id)
     ensure_company_access(user, row[1])
     ensure_visibility(user, domain)
     return MachineScope(machine_id=row[0], company_id=row[1])

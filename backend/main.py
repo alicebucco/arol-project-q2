@@ -1,7 +1,8 @@
 """FastAPI entry point for the AROL Customer Platform backend."""
 
-from pathlib import Path
 from datetime import date, datetime
+from dataclasses import replace
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
@@ -21,6 +22,7 @@ from core.config import get_settings
 from core.contracts import ConversationTurn
 from core.db import check_connection, connection
 from core.data_access import (
+    MachineUnavailableError,
     MachineNotFoundError,
     TicketNotFoundError,
     OrderNotFoundError,
@@ -1041,14 +1043,21 @@ async def chat(
         )
 
     try:
-        result = await handle_chat(message, user, request.machine_id, request.history)
+        result = await handle_chat(
+            message,
+            replace(user, hide_machine_existence=True),
+            request.machine_id,
+            request.history,
+        )
     except MissingMachineContextError as error:
         return ChatResponse(answer=str(error))
-    except MachineNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Machine not found.",
-        ) from None
+    except (MachineNotFoundError, MachineUnavailableError):
+        return ChatResponse(
+            answer=(
+                "The requested machine is not available in your authorized scope, "
+                "so I cannot provide machine-specific information."
+            )
+        )
     except ManualsUnavailableError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

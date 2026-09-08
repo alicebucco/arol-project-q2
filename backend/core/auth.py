@@ -21,6 +21,7 @@ class AuthContext:
     user_id: str
     company_id: str
     visibility: str
+    hide_machine_existence: bool = False
 
 
 def _auth_unavailable() -> HTTPException:
