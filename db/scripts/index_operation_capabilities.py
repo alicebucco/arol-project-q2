@@ -72,7 +72,7 @@ def read_registry_capabilities() -> list[Capability]:
     """Read only the planner-safe catalogue exposed by the backend registry."""
     if str(BACKEND_ROOT) not in sys.path:
         sys.path.insert(0, str(BACKEND_ROOT))
-    from core.operation_registry import OPERATION_REGISTRY
+    from core.operations.catalogue import OPERATION_REGISTRY
 
     capabilities: list[Capability] = []
     for item in OPERATION_REGISTRY.planner_catalog():

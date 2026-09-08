@@ -1,26 +1,22 @@
-# Relational database and Excel import
+# Database operations
 
-`init/002-create-relational-schema.sql` creates the 12 tables required by the
-Excel dataset. Local RAG storage is added separately by
-`init/003-create-manual-chunks.sql`.
+This is a maintenance guide for the local database. For the first installation
+and to start the application, follow the [main README](../README.md) instead.
 
-## Planner capability catalogue
+Use these commands only when you need to reload data, rebuild an index, or
+update an existing database. Run them from the project root with Docker Desktop
+running. The commands that use `docker compose exec` also require the
+application stack to be up.
 
-`init/005-create-operation-capabilities.sql` stores an embedding for each
-planner-safe operation exposed by the backend registry. It contains only
-operation metadata, not user questions, manual excerpts, tenant data, or agent
-results. After changing the operation registry, synchronise the catalogue:
+`init/002-create-relational-schema.sql` creates the 12 relational tables from
+the course workbook. `init/003-create-manual-chunks.sql` adds the local RAG
+storage, while `init/005-create-operation-capabilities.sql` adds the planner
+capability catalogue.
 
-```bash
-docker compose exec backend python /db/scripts/index_operation_capabilities.py
-```
+## Reload the Excel dataset
 
-The script hashes each generated capability document and recomputes embeddings
-only for new or changed operations. Use `--dry-run` to inspect the capability
-IDs without writing to PostgreSQL.
-
-When the course workbook is available locally in `data/`, start the database
-and run the importer from the temporary Python container:
+Use this to import the workbook for the first time, or to discard and reload
+all relational data from `data/AROL_Q2_synthetic_fleet_dataset.xlsx`:
 
 ```bash
 docker compose up -d db
@@ -36,9 +32,13 @@ Excel headers in camelCase are converted to snake_case. Fields described in
 the brief are stored in relational columns; any additional commercial columns
 are preserved in `source_data` (JSONB).
 
-## Local PDF chunking (no embeddings yet)
+## Rebuild the manual-search index
 
-The restricted manuals remain under `data/manuals/` and are never committed.
+Use this after adding, replacing, or re-chunking PDFs under `data/manuals/`.
+The manuals remain local and are never committed.
+
+### Create the chunks
+
 Create page-aware chunks locally with:
 
 ```bash
@@ -50,7 +50,7 @@ The output is JSONL under the ignored `data/` directory. Each record contains
 the source filename, serial number, page, detected section, and text. This
 step does not call an API, create embeddings, or write to PostgreSQL.
 
-## Local embeddings with pgvector
+### Store the embeddings
 
 After importing the Excel dataset and producing `data/manual_chunks.jsonl`,
 generate embeddings locally with the English model
@@ -64,10 +64,29 @@ docker compose run --rm -v ./data:/workdata backend \
 
 The script validates every serial number against `machines.serial_number`, then
 stores 384-dimensional normalised vectors in `manual_chunks`. On a rebuild,
-add `--replace` to the Python command. Fresh databases create the table through
-`init/003-create-manual-chunks.sql`. If the database volume already existed
-before this migration was added, apply it once before running the script:
+add `--replace` to the Python command.
+
+## Update an existing database schema
+
+Fresh database volumes apply all files in `init/` automatically. If a local
+database volume already existed before `003-create-manual-chunks.sql` was
+added, apply that migration once before rebuilding the manual index:
 
 ```bash
 docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /docker-entrypoint-initdb.d/003-create-manual-chunks.sql'
 ```
+
+## Synchronise the planner capability catalogue
+
+Run this whenever an operation is added, removed, or changed in
+`backend/core/operations/`. The catalogue stores embeddings of permitted
+operation descriptions only: never user questions, manuals, tenant data, or
+agent results.
+
+```bash
+docker compose exec backend python /db/scripts/index_operation_capabilities.py
+```
+
+The script hashes each capability description and recalculates embeddings only
+for new or changed operations. Use `--dry-run` to list the capability IDs
+without writing to PostgreSQL.

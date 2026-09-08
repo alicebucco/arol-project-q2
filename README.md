@@ -60,7 +60,7 @@ enforcing each user's company and role boundaries.
    at `http://localhost:8080`.
 
 4. On the first setup, import the workbook, initialise development passwords,
-   and build the manual index:
+   build the manual index, and index the planner capabilities:
 
    ```bash
    docker compose run --rm -e POSTGRES_HOST=db backend \
@@ -68,11 +68,13 @@ enforcing each user's company and role boundaries.
    docker compose run --rm backend python /db/scripts/set_development_passwords.py
    docker compose run --rm -e POSTGRES_HOST=db -v ./data:/workdata backend \
      sh -c "pip install -r /db/requirements-embeddings.txt && python /db/scripts/chunk_manuals.py /data/manuals --output /workdata/manual_chunks.jsonl && python /db/scripts/embed_manual_chunks.py /workdata/manual_chunks.jsonl"
+   docker compose exec backend python /db/scripts/index_operation_capabilities.py
    ```
 
    The first manual-index build downloads the local
    `sentence-transformers/all-MiniLM-L6-v2` model into Docker's `model_cache`
-   volume. Subsequent runs reuse it.
+   volume. Subsequent runs reuse it. Re-run the final command whenever the
+   registered planner operations change.
 
 ## Access control
 
@@ -114,14 +116,22 @@ a separate agent with broader database access.
 
 The backend test suite covers authentication, tenant and role boundaries, API
 contracts, structured plan validation, local manual retrieval, evidence
-minimisation, and grounded composition.
+minimisation, and grounded composition. To run it outside Docker, create the
+local virtual environment once:
 
 ```bash
-docker compose run --rm backend sh -c "pip install -r requirements-dev.txt && pytest"
-docker compose exec frontend npm test
+python3 -m venv venv
+./venv/bin/python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+./venv/bin/python -m pytest backend/tests -q
 ```
 
-The frontend command performs TypeScript validation and a production build.
+The local backend suite skips the isolated PostgreSQL integration tests below.
+For a frontend type check and production build, run:
+
+```bash
+cd frontend
+npm test
+```
 
 ### Isolated PostgreSQL integration tests
 
@@ -130,7 +140,7 @@ They apply the same schema migrations as the development database, create a
 small synthetic dataset, verify a real bcrypt login and JWT-protected API
 requests, and never read the local Excel file or manuals.
 
-```powershell
+```bash
 docker compose -f docker-compose.integration.yml up -d --wait
 docker compose -f docker-compose.integration.yml run --rm integration-backend sh -c "pip install -r requirements-dev.txt && pytest tests/integration"
 docker compose -f docker-compose.integration.yml down
@@ -138,7 +148,7 @@ docker compose -f docker-compose.integration.yml down
 
 ### Frontend end-to-end tests
 
-```powershell
+```bash
 cd frontend
 npm run test:e2e
 ```
