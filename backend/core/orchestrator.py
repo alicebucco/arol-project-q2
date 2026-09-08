@@ -541,6 +541,9 @@ async def _manual_fallback_result(
         AgentRequest(agent="manuals", operation="search", parameters={"query": message, "limit": 5}),
     ])
     bundle = await _execute_plan(plan, message, machine_id, user)
+    manual_evidence = _private_manual_evidence(bundle)
+    if not any(item.get("similarity_threshold_met") is True for item in manual_evidence):
+        return OrchestrationResult(None, await generate_chat_reply(message))
     return OrchestrationResult(
         _result_agents(bundle),
         await _compose_evidence_answer(message, bundle),

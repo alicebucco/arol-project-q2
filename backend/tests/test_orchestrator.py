@@ -449,6 +449,34 @@ def test_enabled_planner_uses_manual_fallback_for_a_general_decision_with_machin
     fallback.assert_awaited_once()
 
 
+def test_manual_fallback_uses_general_reply_when_no_manual_chunk_meets_similarity_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = orchestrator.EvidenceBundle(
+        [AgentResult(
+            agent="manuals",
+            operation="search",
+            evidence={"manual_evidence": []},
+            private_evidence={"manual_evidence": [{"similarity_threshold_met": False}]},
+        )],
+        [],
+        {},
+    )
+    general_reply = AsyncMock(return_value="General answer.")
+    monkeypatch.setattr(orchestrator, "_execute_plan", AsyncMock(return_value=bundle))
+    monkeypatch.setattr(orchestrator, "generate_chat_reply", general_reply)
+
+    result = asyncio.run(orchestrator._manual_fallback_result(
+        "What qualities should a Maintenance Man have?",
+        "MCH-0001",
+        AuthContext("USR-001", "CMP-001", "full"),
+    ))
+
+    assert result.agent is None
+    assert result.answer == "General answer."
+    general_reply.assert_awaited_once_with("What qualities should a Maintenance Man have?")
+
+
 def test_enabled_planner_executes_its_retrieval_plan_through_the_registry_path(monkeypatch: pytest.MonkeyPatch) -> None:
     plan = orchestrator.OrchestrationPlan.model_validate(
         {"requests": [{"agent": "iot", "operation": "recent_alarms", "parameters": {"limit": 1}}]}
