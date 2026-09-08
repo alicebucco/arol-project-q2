@@ -259,12 +259,11 @@ def _private_manual_evidence(bundle: EvidenceBundle) -> list[dict[str, Any]]:
     return chunks
 
 
-async def _compose_validated_manual_answer(
+async def _select_validated_manual_sentences(
     message: str,
-    bundle: EvidenceBundle,
     manual_evidence: list[dict[str, Any]],
-) -> str:
-    """Select authorised manual sentences without requiring the LLM to copy quotes."""
+) -> list[str]:
+    """Select authorised manual sentences without allowing the LLM to copy text."""
 
     chunks: list[dict[str, Any]] = []
     for evidence in manual_evidence:
@@ -292,7 +291,7 @@ async def _compose_validated_manual_answer(
         raw_reply = await generate_structured_reply(prompt, system_prompt)
         proposed = ManualSelectionReply.model_validate_json(raw_reply)
     except ValidationError:
-        return "I found authorised manual evidence, but could not generate a validated summary. Please review the sources below."
+        return []
 
     sentences_by_chunk = {chunk["chunk_id"]: chunk["sentences"] for chunk in chunks}
     selected: list[str] = []
@@ -303,28 +302,50 @@ async def _compose_validated_manual_answer(
         for index in selection.sentence_indexes:
             if 0 <= index < len(sentences):
                 selected.append(sentences[index])
-    if not selected:
-        return "A relevant answer may be found in the sources below. Please review them."
-    return "\n".join(dict.fromkeys(selected))
+    return list(dict.fromkeys(selected))
 
 
-async def _compose_evidence_answer(message: str, bundle: EvidenceBundle) -> str:
-    """Compose a grounded answer from bounded, authorised agent evidence."""
+def _composer_evidence_with_manual_sentences(
+    bundle: EvidenceBundle,
+    selected_manual_sentences: list[str],
+) -> list[dict[str, Any]]:
+    """Replace raw manual-search output with backend-validated manual sentences."""
 
-    manual_evidence = _private_manual_evidence(bundle)
-    if manual_evidence:
-        return await _compose_validated_manual_answer(message, bundle, manual_evidence)
+    evidence = [
+        item for item in bundle.composer_evidence
+        if not (item.get("agent") == "manuals" and item.get("operation") == "search")
+    ]
+    if selected_manual_sentences:
+        evidence.append({
+            "agent": "manuals",
+            "operation": "validated_manual_sentences",
+            "evidence": {"sentences": selected_manual_sentences},
+            "sources": [],
+            "warnings": [],
+        })
+    return evidence
+
+
+async def _compose_grounded_evidence_answer(
+    message: str,
+    composer_evidence: list[dict[str, Any]],
+) -> str:
+    """Compose a grounded answer from already-authorised evidence."""
 
     prompt = (
         f"User question: {message}\n\n"
         "Use only the following evidence retrieved by authorised backend tools. "
         "If it is empty, say that no matching records were found. Do not invent values. "
+        "Use every relevant evidence category present. Do not omit IoT, Service, or Orders facts merely because "
+        "documented manual guidance is also present. Treat validated manual sentences as documented guidance, not "
+        "as proof of a cause, repair, machine condition, or safety status. State when the available evidence cannot "
+        "establish a causal conclusion. "
         "Answer only in English and mention relevant IDs or statuses when useful. "
         "Do not include manual citations inline; the frontend presents authorised sources separately. "
         f"Use {BUSINESS_TODAY.isoformat()} as today's date when interpreting "
         "quote expiry, open items, or overdue work.\n\n"
         f"Evidence retrieved by the authorised agents:\n"
-        f"{json.dumps(bundle.composer_evidence, default=str, ensure_ascii=False)}"
+        f"{json.dumps(composer_evidence, default=str, ensure_ascii=False)}"
     )
     system_prompt = (
         "You are the AROL Customer Platform assistant. "
@@ -338,6 +359,26 @@ async def _compose_evidence_answer(message: str, bundle: EvidenceBundle) -> str:
         "not as a lifetime counter; do not claim a threshold proves maintenance is currently due or completed."
     )
     return await generate_chat_reply(prompt, system_prompt=system_prompt)
+
+
+async def _compose_evidence_answer(message: str, bundle: EvidenceBundle) -> str:
+    """Compose a grounded answer while preserving every relevant agent result."""
+
+    manual_evidence = _private_manual_evidence(bundle)
+    if not manual_evidence:
+        return await _compose_grounded_evidence_answer(message, bundle.composer_evidence)
+
+    selected_manual_sentences = await _select_validated_manual_sentences(message, manual_evidence)
+    has_non_manual_evidence = any(result.agent != "manuals" for result in bundle.results)
+    if not has_non_manual_evidence:
+        if selected_manual_sentences:
+            return "\n".join(selected_manual_sentences)
+        return "I found authorised manual evidence, but could not generate a validated summary. Please review the sources below."
+
+    return await _compose_grounded_evidence_answer(
+        message,
+        _composer_evidence_with_manual_sentences(bundle, selected_manual_sentences),
+    )
 
 
 def _result_agents(bundle: EvidenceBundle) -> list[AgentName]:

@@ -299,6 +299,92 @@ def test_manual_composition_uses_a_safe_fallback_for_invalid_structured_output(m
     assert result.answer == "I found authorised manual evidence, but could not generate a validated summary. Please review the sources below."
 
 
+def test_manual_and_iot_evidence_are_composed_together_from_validated_sentences(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_chunk = {
+        "source": "manual", "chunk_id": "manual-p21-1", "file": "manual.pdf",
+        "page": 21, "section": "pneumatics",
+        "content": "Keep the sterile-air pressure between 5 and 8 bar. Unselected manual sentence.",
+    }
+    iot_evidence = {
+        "machine_id": "MCH-0001",
+        "alarm_code": "AL017_LOW_AIR_PRESSURE",
+        "occurrences": 4,
+    }
+    manual_result = AgentResult(
+        agent="manuals",
+        operation="search",
+        evidence={"machine_id": "MCH-0001", "manual_evidence": []},
+        private_evidence={"manual_evidence": [private_chunk]},
+    )
+    bundle = orchestrator.EvidenceBundle(
+        [
+            AgentResult(agent="iot", operation="count_alarms", evidence=iot_evidence),
+            manual_result,
+        ],
+        [
+            {"agent": "iot", "operation": "count_alarms", "evidence": iot_evidence, "sources": [], "warnings": []},
+            {"agent": "manuals", "operation": "search", "evidence": manual_result.evidence, "sources": [], "warnings": []},
+        ],
+        {},
+    )
+    structured = AsyncMock(return_value=(
+        '{"selections":[{"chunk_id":"manual-p21-1","sentence_indexes":[0]}]}'
+    ))
+    composer = AsyncMock(return_value="AL017_LOW_AIR_PRESSURE occurred 4 times. The manual documents a sterile-air pressure range of 5 to 8 bar.")
+    monkeypatch.setattr(orchestrator, "generate_structured_reply", structured)
+    monkeypatch.setattr(orchestrator, "generate_chat_reply", composer)
+
+    answer = asyncio.run(orchestrator._compose_evidence_answer(
+        "How often did AL017 occur and what pressure range is documented?", bundle,
+    ))
+
+    assert answer == composer.return_value
+    prompt = composer.await_args.args[0]
+    assert "iot" in prompt
+    assert "AL017_LOW_AIR_PRESSURE" in prompt
+    assert "Keep the sterile-air pressure between 5 and 8 bar." in prompt
+    assert "Unselected manual sentence." not in prompt
+    assert '"operation": "manuals.search"' not in prompt
+    assert "validated_manual_sentences" in prompt
+
+
+def test_invalid_manual_selection_keeps_non_manual_evidence_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_chunk = {
+        "source": "manual", "chunk_id": "manual-p21-1", "file": "manual.pdf",
+        "page": 21, "section": "pneumatics", "content": "Keep the sterile-air pressure between 5 and 8 bar.",
+    }
+    iot_evidence = {"machine_id": "MCH-0001", "alarm_code": "AL017_LOW_AIR_PRESSURE", "occurrences": 4}
+    manual_result = AgentResult(
+        agent="manuals", operation="search", evidence={"manual_evidence": []},
+        private_evidence={"manual_evidence": [private_chunk]},
+    )
+    bundle = orchestrator.EvidenceBundle(
+        [AgentResult(agent="iot", operation="count_alarms", evidence=iot_evidence), manual_result],
+        [
+            {"agent": "iot", "operation": "count_alarms", "evidence": iot_evidence, "sources": [], "warnings": []},
+            {"agent": "manuals", "operation": "search", "evidence": manual_result.evidence, "sources": [], "warnings": []},
+        ],
+        {},
+    )
+    composer = AsyncMock(return_value="AL017_LOW_AIR_PRESSURE occurred 4 times.")
+    monkeypatch.setattr(orchestrator, "generate_structured_reply", AsyncMock(return_value="not json"))
+    monkeypatch.setattr(orchestrator, "generate_chat_reply", composer)
+
+    answer = asyncio.run(orchestrator._compose_evidence_answer(
+        "How often did AL017 occur?", bundle,
+    ))
+
+    assert answer == composer.return_value
+    prompt = composer.await_args.args[0]
+    assert "AL017_LOW_AIR_PRESSURE" in prompt
+    assert "Keep the sterile-air pressure between 5 and 8 bar." not in prompt
+    assert "manuals.search" not in prompt
+
+
 def test_data_agent_keeps_structured_evidence_for_the_chat(monkeypatch: pytest.MonkeyPatch) -> None:
     evidence = {
         "machine_id": "MCH-0001",
