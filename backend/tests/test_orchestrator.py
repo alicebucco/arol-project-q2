@@ -1,37 +1,13 @@
 import asyncio
 from datetime import datetime
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 import core.orchestrator as orchestrator
 from core.auth import AuthContext
-from core.contracts import AgentRequest, AgentResult, ContextualPlannerDecision, ConversationTurn, OrchestrationPlan
+from core.contracts import AgentRequest, AgentResult, ContextualPlannerDecision, ConversationTurn, OrchestrationPlan, PlannerDecision
 from core.planner import InvalidPlannerOutputError
-
-
-@pytest.mark.parametrize(
-    ("question", "intent"),
-    [
-        ("Are there any recent alarms?", "iot"),
-        ("What does AL017_LOW_AIR_PRESSURE mean?", "alarm_guidance"),
-        ("How many times did AL017_LOW_AIR_PRESSURE occur?", "iot"),
-        ("Show the production rate and uptime.", "iot"),
-        ("Which maintenance tickets are open?", "service"),
-        ("Which maintenance activities are required periodically?", "manuals"),
-        ("What maintenance is due after the observed operating hours?", "maintenance_due"),
-        ("Quale manutenzione è dovuta in base alle ore operative?", "maintenance_due"),
-        ("What installation requirements does this machine have?", "manuals"),
-        ("How should I lubricate the machine?", "manuals"),
-        ("What should I do about pneumatic pressure issues?", "manuals"),
-        ("Why is the machine generating repeated alarms?", "general"),
-        ("What is the status of my orders and quotes?", "orders"),
-        ("Hello, what can you do?", "general"),
-    ],
-)
-def test_intent_routing(question: str, intent: str) -> None:
-    assert orchestrator.classify_intent(question) == intent
 
 
 def test_contextual_follow_up_executes_the_bound_evidence_plan(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -55,7 +31,6 @@ def test_contextual_follow_up_executes_the_bound_evidence_plan(monkeypatch: pyte
     execute = AsyncMock(return_value=bundle)
     compose = AsyncMock(return_value="The alarm details are available.")
     contextual_planner = AsyncMock(return_value=decision)
-    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
     monkeypatch.setattr(orchestrator, "decide_contextual_question", contextual_planner)
     monkeypatch.setattr(orchestrator, "_execute_plan", execute)
     monkeypatch.setattr(orchestrator, "_compose_evidence_answer", compose)
@@ -79,7 +54,6 @@ def test_contextual_follow_up_executes_the_bound_evidence_plan(monkeypatch: pyte
 
 def test_contextual_follow_up_returns_a_safe_clarification_for_an_invalid_plan(monkeypatch: pytest.MonkeyPatch) -> None:
     execute = AsyncMock()
-    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
     monkeypatch.setattr(
         orchestrator,
         "decide_contextual_question",
@@ -143,7 +117,6 @@ def test_explicit_alarm_selection_uses_a_standalone_plan_despite_eight_prior_tur
     contextual_planner = AsyncMock()
     standalone_planner = AsyncMock(return_value=decision)
     execute = AsyncMock(return_value=bundle)
-    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
     monkeypatch.setattr(orchestrator, "decide_contextual_question", contextual_planner)
     monkeypatch.setattr(orchestrator, "decide_question", standalone_planner)
     monkeypatch.setattr(orchestrator, "_execute_plan", execute)
@@ -175,7 +148,6 @@ def test_production_question_ignores_unrelated_alarm_history(monkeypatch: pytest
     bundle = orchestrator.EvidenceBundle(
         [AgentResult(agent="iot", operation="telemetry", evidence={"telemetry": []})], [], {"telemetry": []},
     )
-    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
     monkeypatch.setattr(orchestrator, "decide_contextual_question", contextual_planner)
     monkeypatch.setattr(orchestrator, "decide_question", standalone_planner)
     monkeypatch.setattr(orchestrator, "_execute_plan", AsyncMock(return_value=bundle))
@@ -224,7 +196,11 @@ def test_manual_intent_uses_composer_with_sanitised_manual_evidence(monkeypatch:
         )
 
     llm = AsyncMock(return_value="Use the safety guard before maintenance.")
+    plan = OrchestrationPlan.model_validate({"requests": [
+        {"agent": "manuals", "operation": "search", "parameters": {"query": "Find safety instructions in the manual.", "limit": 5}},
+    ]})
     monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
+    monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=PlannerDecision(action="retrieve_evidence", plan=plan)))
     monkeypatch.setattr(orchestrator, "generate_chat_reply", llm)
 
     result = asyncio.run(
@@ -275,7 +251,11 @@ def test_manual_composition_reconstructs_selected_source_sentences_and_keeps_chu
     structured = AsyncMock(return_value=(
         '{"selections":[{"chunk_id":"manual-p32-1","sentence_indexes":[0]}]}'
     ))
+    plan = OrchestrationPlan.model_validate({"requests": [
+        {"agent": "manuals", "operation": "search", "parameters": {"query": "Find safety instructions in the manual.", "limit": 5}},
+    ]})
     monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
+    monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=PlannerDecision(action="retrieve_evidence", plan=plan)))
     monkeypatch.setattr(orchestrator, "generate_structured_reply", structured)
     plain = AsyncMock()
     monkeypatch.setattr(orchestrator, "generate_chat_reply", plain)
@@ -306,6 +286,10 @@ def test_manual_composition_uses_a_safe_fallback_for_invalid_structured_output(m
         )
 
     monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
+    plan = OrchestrationPlan.model_validate({"requests": [
+        {"agent": "manuals", "operation": "search", "parameters": {"query": "Find safety instructions in the manual.", "limit": 5}},
+    ]})
+    monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=PlannerDecision(action="retrieve_evidence", plan=plan)))
     monkeypatch.setattr(orchestrator, "generate_structured_reply", AsyncMock(return_value="not json"))
 
     result = asyncio.run(orchestrator.handle_chat(
@@ -330,6 +314,10 @@ def test_data_agent_keeps_structured_evidence_for_the_chat(monkeypatch: pytest.M
         )
 
     monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
+    plan = OrchestrationPlan.model_validate({"requests": [
+        {"agent": "iot", "operation": "recent_alarms", "parameters": {"limit": 5}},
+    ]})
+    monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=PlannerDecision(action="retrieve_evidence", plan=plan)))
     monkeypatch.setattr(orchestrator, "generate_chat_reply", AsyncMock(return_value="One open alarm was found."))
 
     result = asyncio.run(
@@ -342,30 +330,6 @@ def test_data_agent_keeps_structured_evidence_for_the_chat(monkeypatch: pytest.M
 
     assert result.agent == ["iot"]
     assert result.structured_data == evidence
-
-
-def test_iot_count_plan_is_executed_through_the_registry(monkeypatch: pytest.MonkeyPatch) -> None:
-    plan = orchestrator._deterministic_plan(
-        "iot", "How many times did AL017_LOW_AIR_PRESSURE occur?"
-    )
-    assert plan is not None
-    assert plan.requests[0].operation == "count_alarms"
-
-    expected = AgentResult(
-        agent="iot", operation="count_alarms", evidence={"occurrences": 4}, structured_data={"machine_id": "MCH-0001"}
-    )
-    execute = AsyncMock(return_value=expected)
-    monkeypatch.setattr(orchestrator.OPERATION_REGISTRY, "execute", execute)
-
-    bundle = asyncio.run(orchestrator._execute_plan(
-        plan, "How many times did AL017_LOW_AIR_PRESSURE occur?", "MCH-0001",
-        AuthContext("USR-001", "CMP-001", "full"),
-    ))
-
-    assert bundle.results == [expected]
-    assert bundle.structured_data == {"machine_id": "MCH-0001"}
-    assert bundle.composer_evidence[0]["evidence"] == {"occurrences": 4}
-    execute.assert_awaited_once()
 
 
 def test_execute_plan_runs_independent_requests_concurrently(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -403,38 +367,8 @@ def test_execute_plan_runs_independent_requests_concurrently(monkeypatch: pytest
     assert [result.operation for result in bundle.results] == ["recent_alarms", "search"]
 
 
-def test_orchestrator_uses_the_deterministic_plan_only_as_a_fallback() -> None:
-    result = orchestrator._plan_for_chat("iot", "Show recurring alarms.", AuthContext("USR-001", "CMP-001", "full"))
-
-    assert result.requests[0].operation == "alarm_summary"
-
-
-def test_alarm_guidance_fallback_plan_collects_iot_and_manual_evidence() -> None:
-    plan = orchestrator._deterministic_plan(
-        "alarm_guidance", "What does AL017_LOW_AIR_PRESSURE mean?"
-    )
-
-    assert plan is not None
-    assert [(request.agent, request.operation) for request in plan.requests] == [
-        ("iot", "alarm_meaning"),
-        ("iot", "recent_alarms"),
-        ("manuals", "search"),
-    ]
-    assert plan.requests[0].parameters == {
-        "alarm_code": "AL017_LOW_AIR_PRESSURE",
-    }
-    assert plan.requests[1].parameters == {
-        "alarm_code": "AL017_LOW_AIR_PRESSURE",
-        "limit": 5,
-    }
-    assert plan.requests[2].parameters["query"] == (
-        "AL017_LOW_AIR_PRESSURE Low air pressure cause remedy troubleshooting"
-    )
-
-
 def test_enabled_planner_uses_manual_fallback_for_a_general_decision_with_machine_context(monkeypatch: pytest.MonkeyPatch) -> None:
     decision = orchestrator.PlannerDecision.model_validate({"action": "answer_without_evidence"})
-    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
     monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=decision))
     fallback = AsyncMock(return_value=orchestrator.OrchestrationResult(["manuals"], "Documented answer."))
     monkeypatch.setattr(orchestrator, "_manual_fallback_result", fallback)
@@ -490,7 +424,6 @@ def test_enabled_planner_executes_its_retrieval_plan_through_the_registry_path(m
         {"machine_id": "MCH-0001", "alarms": []},
     )
     execute_plan = AsyncMock(return_value=bundle)
-    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
     monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=decision))
     monkeypatch.setattr(orchestrator, "_execute_plan", execute_plan)
     monkeypatch.setattr(orchestrator, "generate_chat_reply", AsyncMock(return_value="No recent alarms were found."))
@@ -551,7 +484,13 @@ def test_alarm_guidance_uses_composer_with_multi_agent_evidence(monkeypatch: pyt
 
     execute_plan = AsyncMock(return_value=bundle)
     llm = AsyncMock(return_value="AL017_LOW_AIR_PRESSURE means low air pressure.")
+    plan = OrchestrationPlan.model_validate({"requests": [
+        {"agent": "iot", "operation": "alarm_meaning", "parameters": {"alarm_code": "AL017_LOW_AIR_PRESSURE"}},
+        {"agent": "iot", "operation": "recent_alarms", "parameters": {"alarm_code": "AL017_LOW_AIR_PRESSURE", "limit": 5}},
+        {"agent": "manuals", "operation": "search", "parameters": {"query": "AL017_LOW_AIR_PRESSURE troubleshooting", "limit": 5}},
+    ]})
     monkeypatch.setattr(orchestrator, "_execute_plan", execute_plan)
+    monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=PlannerDecision(action="retrieve_evidence", plan=plan)))
     monkeypatch.setattr(orchestrator, "generate_chat_reply", llm)
 
     result = asyncio.run(
@@ -604,7 +543,12 @@ def test_maintenance_due_uses_composer_with_the_observation_scope(monkeypatch: p
         )
 
     llm = AsyncMock(return_value="The available telemetry window contains 514.26 productive hours.")
+    plan = OrchestrationPlan.model_validate({"requests": [
+        {"agent": "iot", "operation": "observed_productive_hours"},
+        {"agent": "manuals", "operation": "maintenance_requirements"},
+    ]})
     monkeypatch.setattr(orchestrator, "_execute_plan", fake_execute)
+    monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=PlannerDecision(action="retrieve_evidence", plan=plan)))
     monkeypatch.setattr(orchestrator, "generate_chat_reply", llm)
 
     result = asyncio.run(
@@ -618,22 +562,10 @@ def test_maintenance_due_uses_composer_with_the_observation_scope(monkeypatch: p
     assert result.agent == ["iot", "manuals"]
     assert result.answer == "The available telemetry window contains 514.26 productive hours."
     assert result.manual_evidence is None
-    assert result.structured_data["maintenance_observation"]["reached_threshold_hours"] == [40, 500]
-    assert result.structured_data["maintenance_observation"]["next_threshold_hours"] == 1000
+    assert result.structured_data["productive_hours_observation"] == productive_hours
+    assert result.structured_data["maintenance_requirements"] == requirements
     assert requirements["scope_note"] in llm.await_args.args[0]
     assert "not as a lifetime counter" in llm.await_args.kwargs["system_prompt"]
-
-
-def test_maintenance_due_plan_uses_iot_and_manuals_not_service() -> None:
-    plan = orchestrator._deterministic_plan(
-        "maintenance_due", "What maintenance is due after the observed operating hours?",
-    )
-
-    assert plan is not None
-    assert [(request.agent, request.operation) for request in plan.requests] == [
-        ("iot", "observed_productive_hours"),
-        ("manuals", "maintenance_requirements"),
-    ]
 
 
 def test_planner_handles_diagnostics_as_a_generic_multi_agent_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -657,7 +589,6 @@ def test_planner_handles_diagnostics_as_a_generic_multi_agent_workflow(monkeypat
         [],
         {"alarm_patterns": [], "maintenance_tickets": []},
     )
-    monkeypatch.setattr(orchestrator, "get_settings", lambda: SimpleNamespace(llm_planner_enabled=True))
     monkeypatch.setattr(orchestrator, "decide_question", AsyncMock(return_value=decision))
     monkeypatch.setattr(orchestrator, "_execute_plan", AsyncMock(return_value=bundle))
     monkeypatch.setattr(orchestrator, "generate_chat_reply", AsyncMock(return_value="No recurring alarm pattern was found."))

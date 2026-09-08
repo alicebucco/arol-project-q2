@@ -4,7 +4,6 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, time, timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -20,7 +19,6 @@ from core.contracts import (
     OrchestrationPlan,
     PlannerDecision,
 )
-from core.config import get_settings
 from core.llm import generate_chat_reply, generate_structured_reply
 from core.maintenance_observation import maintenance_observation
 from core.operation_registry import OPERATION_REGISTRY, OperationContext
@@ -80,175 +78,6 @@ def _requires_conversation_context(message: str) -> bool:
     """Return whether a message needs earlier turns to resolve its subject or time."""
 
     return CONTEXT_DEPENDENT_MESSAGE_PATTERN.search(message) is not None
-
-
-def classify_intent(message: str) -> str:
-    """Route English and Italian questions before invoking the LLM."""
-
-    text = message.casefold()
-    if ALARM_CODE_PATTERN.search(message) and any(
-        term in text for term in ("how many", "number of", "count", "quante", "quanti", "conteggio")
-    ):
-        return "iot"
-    if ALARM_CODE_PATTERN.search(message):
-        return "alarm_guidance"
-    maintenance_due_terms = (
-        "maintenance due", "due maintenance", "overdue maintenance", "next maintenance",
-        "maintenance threshold", "operating hours", "working hours", "ore di lavoro",
-        "ore operative", "manutenzione dovuta", "manutenzione scaduta", "soglia manutenzione",
-        "prossima manutenzione", "quando è prevista", "due", "dovuta", "scaduta", "scadenza",
-    )
-    if any(term in text for term in ("maintenance", "manutenzione")) and any(
-        term in text for term in maintenance_due_terms
-    ):
-        return "maintenance_due"
-    maintenance_manual_terms = (
-        "periodic", "interval", "procedure", "required", "requirement", "due",
-        "scheduled maintenance", "how to maintain", "maintenance schedule",
-        "periodic maintenance", "intervallo", "procedura", "richiesto", "scadenza",
-    )
-    if any(
-        word in text
-        for word in (
-            "manual", "instruction", "configuration", "safety", "installation",
-            "assembly", "lubricat", "mechanical", "pneumatic", "pressur", "operation",
-            "manuale", "istruzioni", "configurazione", "sicurezza", "installazione",
-            "montaggio", "lubrificazione", "meccanico", "pneumatico", "operazione",
-        )
-    ) or ("maintenance" in text and any(term in text for term in maintenance_manual_terms)):
-        return "manuals"
-    if any(
-        word in text
-        for word in (
-            "alarm", "telemetr", "production", "uptime", "temperature", "operational status",
-            "allarm", "produzion", "temperatura", "stato operativo",
-        )
-    ):
-        return "iot"
-    if any(
-        word in text
-        for word in ("maintenance", "ticket", "intervention", "service", "manutenz", "intervento")
-    ):
-        return "service"
-    if any(
-        word in text
-        for word in (
-            "order", "quote", "price", "discount", "shipment", "cost", "invoice", "purchase",
-            "ordine", "ordini", "preventiv", "quotazione", "prezzo", "sconto", "spedizion",
-            "costo", "costa", "costat", "fattura", "acquist",
-        )
-    ):
-        return "orders"
-    return "general"
-
-
-def _iso_periods(message: str) -> list[tuple[datetime, datetime]]:
-    """Extract inclusive UTC day ranges from ISO dates for the deterministic router."""
-
-    values = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", message)
-    periods: list[tuple[datetime, datetime]] = []
-    if len(values) == 1:
-        value = datetime.fromisoformat(values[0]).date()
-        return [(datetime.combine(value, time.min, tzinfo=timezone.utc),
-                 datetime.combine(value, time.max, tzinfo=timezone.utc))]
-    for index in range(0, len(values) - 1, 2):
-        start_date = datetime.fromisoformat(values[index]).date()
-        end_date = datetime.fromisoformat(values[index + 1]).date()
-        periods.append(
-            (
-                datetime.combine(start_date, time.min, tzinfo=timezone.utc),
-                datetime.combine(end_date, time.max, tzinfo=timezone.utc),
-            )
-        )
-    return periods
-
-
-def _deterministic_plan(
-    intent: str,
-    message: str,
-    user: AuthContext | None = None,
-) -> OrchestrationPlan | None:
-    """Temporary planner that maps the legacy router to registered operations.
-
-    It deliberately produces the same strict ``OrchestrationPlan`` that the
-    future LLM planner will produce.  Therefore replacing this bridge will not
-    change authorisation, parameter validation, agent invocation, or UI data.
-    """
-
-    text = message.casefold()
-    periods = _iso_periods(message)
-    start_time, end_time = periods[0] if periods else (None, None)
-    code_match = ALARM_CODE_PATTERN.search(message)
-    alarm_code = code_match.group(0).upper() if code_match else None
-
-    if intent == "iot":
-        alarm_parameters = {"start_time": start_time, "end_time": end_time, "alarm_code": alarm_code}
-        count_terms = ("how many", "number of", "count", "quante", "quanti", "conteggio")
-        summary_terms = ("most frequent", "recurring", "repeated", "group", "frequency", "più frequ", "ricorrent")
-        telemetry_terms = ("telemetr", "temperature", "energy", "uptime", "production", "temperatura", "energia", "produzion")
-        statistic_terms = ("average", "mean", "minimum", "maximum", "total", "trend", "media", "minim", "massim", "totale", "andamento")
-
-        if alarm_code and any(term in text for term in count_terms):
-            requests = [AgentRequest(agent="iot", operation="count_alarms", parameters=alarm_parameters)]
-        elif "alarm" in text or "allarm" in text:
-            operation = "alarm_summary" if any(term in text for term in summary_terms) else "recent_alarms"
-            requests = [AgentRequest(agent="iot", operation=operation, parameters={**alarm_parameters, "limit": 20})]
-        elif any(term in text for term in telemetry_terms) and any(term in text for term in statistic_terms):
-            if len(periods) >= 2 and any(term in text for term in ("compare", "comparison", "confront")):
-                requests = [AgentRequest(
-                    agent="iot",
-                    operation="compare_telemetry_periods",
-                    parameters={
-                        "first_start": periods[0][0], "first_end": periods[0][1],
-                        "second_start": periods[1][0], "second_end": periods[1][1],
-                    },
-                )]
-            else:
-                requests = [AgentRequest(
-                    agent="iot",
-                    operation="telemetry_summary",
-                    parameters={"start_time": start_time, "end_time": end_time},
-                )]
-        else:
-            requests = [
-                AgentRequest(agent="iot", operation="recent_alarms", parameters={**alarm_parameters, "limit": 20}),
-                AgentRequest(agent="iot", operation="telemetry", parameters={"start_time": start_time, "end_time": end_time, "limit": 20}),
-            ]
-        return OrchestrationPlan(requests=requests)
-
-    if intent == "alarm_guidance" and alarm_code:
-        return _alarm_guidance_plan(
-            alarm_code,
-            limit=5,
-            include_recent_events=user is None or user.visibility in {"full", "technician"},
-        )
-
-    if intent == "manuals":
-        return OrchestrationPlan(
-            requests=[AgentRequest(agent="manuals", operation="search", parameters={"query": message, "limit": 5})],
-        )
-    if intent == "service":
-        return OrchestrationPlan(
-            requests=[AgentRequest(agent="service", operation="maintenance_tickets", parameters={"limit": 10})],
-        )
-    if intent == "maintenance_due":
-        return _maintenance_observation_plan()
-    if intent == "orders":
-        return OrchestrationPlan(
-            requests=[
-                AgentRequest(agent="orders", operation="orders", parameters={"limit": 10}),
-                AgentRequest(agent="orders", operation="quotes", parameters={"limit": 10}),
-            ],
-        )
-    return None
-
-
-def _plan_for_chat(intent: str, message: str, user: AuthContext) -> OrchestrationPlan:
-    """Build the temporary deterministic fallback while the planner is disabled."""
-
-    plan = _deterministic_plan(intent, message, user)
-    assert plan is not None
-    return plan
 
 
 def _machine_id(message: str, machine_id: str | None) -> str | None:
@@ -560,8 +389,7 @@ async def handle_chat(
 ) -> OrchestrationResult:
     """Route a chat message, collect authorised evidence, and compose an answer."""
 
-    planner_enabled = get_settings().llm_planner_enabled
-    if history and planner_enabled and _requires_conversation_context(message):
+    if history and _requires_conversation_context(message):
         try:
             contextual_decision = await decide_contextual_question(message, history, BUSINESS_TODAY)
         except InvalidPlannerOutputError:
@@ -582,9 +410,8 @@ async def handle_chat(
             structured_data=bundle.structured_data,
         )
 
-    intent = classify_intent(message)
     try:
-        planner_decision = await decide_question(message) if planner_enabled else None
+        planner_decision = await decide_question(message)
     except InvalidPlannerOutputError:
         if target := _machine_id(message, machine_id):
             return await _manual_fallback_result(message, target, user)
@@ -592,22 +419,13 @@ async def handle_chat(
             None,
             "I could not safely create an evidence plan. Please rephrase the request with the relevant machine, alarm, ticket, order, or quote identifier.",
         )
-    if planner_decision is not None and planner_decision.action == "answer_without_evidence":
+    if planner_decision.action == "answer_without_evidence":
         if target := _machine_id(message, machine_id):
             return await _manual_fallback_result(message, target, user)
         return OrchestrationResult(None, await generate_chat_reply(message))
-    if intent == "general" and planner_decision is None:
-        return OrchestrationResult(None, await generate_chat_reply(message))
-
-    plan = (
-        _maintenance_observation_plan()
-        if intent == "maintenance_due"
-        else planner_decision.plan if planner_decision is not None else _plan_for_chat(intent, message, user)
-    )
+    plan = planner_decision.plan
     assert plan is not None
     bundle = await _execute_plan(plan, message, machine_id, user)
-    if intent == "maintenance_due":
-        bundle = _correlate_maintenance_observation(bundle)
     return OrchestrationResult(
         _result_agents(bundle),
         await _compose_evidence_answer(message, bundle),

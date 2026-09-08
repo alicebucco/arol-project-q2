@@ -18,7 +18,6 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.inceptionlabs.ai/v1"
     llm_api_key: SecretStr | None = None
     llm_model: str = "mercury-2"
-    llm_planner_enabled: bool = False
     auth_jwt_secret: SecretStr | None = None
     auth_jwt_expire_minutes: int = 60
 
