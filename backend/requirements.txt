@@ -3,6 +3,7 @@ uvicorn[standard]==0.34.0
 openai==1.58.1
 psycopg[binary]==3.2.13
 pydantic-settings==2.7.1
+PyYAML==6.0.2
 PyJWT==2.10.1
 bcrypt==4.2.1
 # Local RAG query embeddings. CPU-only avoids downloading CUDA packages.
