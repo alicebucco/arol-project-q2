@@ -88,7 +88,7 @@ def test_legacy_list_remains_compatible(monkeypatch):
     ("quotes", [(1, "QTE-1", date(2026, 8, 5), 2, "Rejected", 0.1, 100, "EUR", date(2026, 1, 1))], 1, False),
 ])
 def test_data_access_result_completeness_and_currency(monkeypatch, kind, rows, total, truncated):
-    from core import data_access
+    from db.repositories import commercial as data_access
 
     cursor = MagicMock()
     cursor.__aenter__ = AsyncMock(return_value=cursor)
@@ -115,7 +115,7 @@ def test_data_access_result_completeness_and_currency(monkeypatch, kind, rows, t
 
 def test_ambiguous_comparison_survives_api_schema():
     from main import QuoteLineChange
-    from core.data_access import _compare_quote_lines
+    from db.repositories.commercial import _compare_quote_lines
 
     lines = [
         {"quote_line_id": "QL-1", "machine_id": None, "description": "Kit", "price": 100},

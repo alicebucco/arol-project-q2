@@ -4,9 +4,10 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
+from api import auth, chat, commercial, machines as machine_routes, manuals, operations
 import main
 from core.auth import AuthContext, get_current_user
-from core.data_access import MachineNotFoundError, MachineUnavailableError
+from db.repositories.errors import MachineNotFoundError, MachineUnavailableError
 from core.llm import LlmRequestError
 from core.contracts import AgentResult, ConversationTurn
 from core.orchestrator import EvidenceBundle, OrchestrationResult
@@ -55,8 +56,8 @@ class FakeConnection:
 
 
 def test_login_and_current_session(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(main, "authenticate_password", AsyncMock(return_value=FULL_USER))
-    monkeypatch.setattr(main, "create_access_token", lambda _user: "test-token")
+    monkeypatch.setattr(auth, "authenticate_password", AsyncMock(return_value=FULL_USER))
+    monkeypatch.setattr(auth, "create_access_token", lambda _user: "test-token")
 
     response = client.post("/auth/login", json={"user_id": "USR-001", "password": "password123"})
 
@@ -68,7 +69,7 @@ def test_login_and_current_session(client: TestClient, monkeypatch: pytest.Monke
 
 def test_profile_and_order_detail_endpoints(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        main,
+        auth,
         "get_user_profile",
         AsyncMock(return_value={
             "user_id": "USR-001", "company_id": "CMP-001", "visibility": "full",
@@ -78,7 +79,7 @@ def test_profile_and_order_detail_endpoints(client: TestClient, monkeypatch: pyt
         }),
     )
     monkeypatch.setattr(
-        main,
+        commercial,
         "order_detail",
         AsyncMock(return_value={
             "order_id": "ORD-1", "quote_id": "QTE-1", "order_status": "Confirmed",
@@ -101,7 +102,7 @@ def test_profile_and_order_detail_endpoints(client: TestClient, monkeypatch: pyt
 
 def test_machine_list_and_qr_lookup(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        main,
+        machine_routes,
         "get_company_machines",
         AsyncMock(
             return_value=[
@@ -117,7 +118,7 @@ def test_machine_list_and_qr_lookup(client: TestClient, monkeypatch: pytest.Monk
         ),
     )
     monkeypatch.setattr(
-        main,
+        machine_routes,
         "connection",
         lambda: FakeConnection(
             ("MCH-0001", "15610", "CMP-001", "Valgrande", "MODEL-1", "CLOSER-1", "Closing machine", date(2025, 1, 15), "Line 1", "standard", "SIEMENS-SIMATIC-S7", "1.0")
@@ -138,17 +139,17 @@ def test_machine_list_and_qr_lookup(client: TestClient, monkeypatch: pytest.Monk
 def test_operational_and_service_endpoints(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     timestamp = datetime(2026, 8, 5, tzinfo=timezone.utc)
     monkeypatch.setattr(
-        main,
+        operations,
         "recent_alarms",
         AsyncMock(return_value=[{"alarm_id": "ALM-1", "timestamp": timestamp, "alarm_code": "AL017_LOW_AIR_PRESSURE", "severity": "High", "alarm_status": "Open"}]),
     )
     monkeypatch.setattr(
-        main,
+        operations,
         "telemetry",
         AsyncMock(return_value=[{"timestamp": timestamp, "operational_status": "Alarm", "production_rate_bph": 0, "uptime_percentage": 0, "alarm_count": 1, "temperature_c": 24.5, "energy_kwh": 2.0, "health_note": None}]),
     )
     monkeypatch.setattr(
-        main,
+        operations,
         "search_tickets",
         AsyncMock(return_value={"items": [{"ticket_id": "TCK-1", "alarm_id": "ALM-1", "ticket_type": "Remote troubleshooting", "ticket_status": "Open", "priority": "High", "created_date": timestamp, "owner_role": "Maintenance Man"}], "total_count": 1, "returned_count": 1, "is_truncated": False, "limit": 5}),
     )
@@ -166,7 +167,7 @@ def test_operational_and_service_endpoints(client: TestClient, monkeypatch: pyte
 def test_alarm_guidance_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     timestamp = datetime(2026, 8, 5, tzinfo=timezone.utc)
     monkeypatch.setattr(
-        main,
+        operations,
         "retrieve_alarm_guidance_evidence",
         AsyncMock(
             return_value=EvidenceBundle(
@@ -213,7 +214,7 @@ def test_alarm_guidance_endpoint(client: TestClient, monkeypatch: pytest.MonkeyP
 def test_maintenance_observation_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     timestamp = datetime(2026, 8, 5, tzinfo=timezone.utc)
     monkeypatch.setattr(
-        main,
+        operations,
         "retrieve_maintenance_observation",
         AsyncMock(
             return_value={
@@ -240,7 +241,7 @@ def test_maintenance_observation_endpoint(client: TestClient, monkeypatch: pytes
 
 def test_manual_search_returns_excerpt_and_rejects_path_traversal(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        main,
+        manuals,
         "search_manual",
         AsyncMock(return_value=[{"source": "manual", "chunk_id": "15610-p32-1", "file": "15610_manual_EN.pdf", "page": 32, "section": "safety", "content": "Long raw chunk", "excerpt": "Long raw chunk", "title": "Manual excerpt", "highlights": ["safety"], "relevance": 0.9, "similarity": 0.82, "similarity_threshold_met": True, "alarm_code_match": "not_requested", "excerpt_is_complete_chunk": True, "section_category": "safety", "section_category_is_inferred": True, "documented_section_title": None}]),
     )
@@ -270,8 +271,8 @@ def test_orders_and_quotes(client: TestClient, monkeypatch: pytest.MonkeyPatch) 
         "revision_number": 2, "revision_status": "Approved", "discount_rate": 0.1,
         "line_total": 1250.5, "currency": "EUR",
     }]})
-    monkeypatch.setattr(main, "search_orders", order_search)
-    monkeypatch.setattr(main, "search_quotes", quote_search)
+    monkeypatch.setattr(commercial, "search_orders", order_search)
+    monkeypatch.setattr(commercial, "search_quotes", quote_search)
     orders = client.get("/orders?limit=1&order_status=Confirmed&start_date=2026-01-01")
     quotes = client.get("/quotes?limit=1&revision_status=Approved")
 
@@ -291,7 +292,7 @@ def test_commercial_invalid_filters_return_422(client: TestClient, path: str) ->
 
 def test_quote_history_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        main,
+        commercial,
         "quote_history",
         AsyncMock(
             return_value={
@@ -327,13 +328,13 @@ def test_quote_history_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPa
 
 def test_chat_success_and_provider_error(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        main,
+        chat,
         "handle_chat",
         AsyncMock(return_value=OrchestrationResult(["iot"], "One open alarm was found.", structured_data={"machine_id": "MCH-0001", "alarms": []})),
     )
     success = client.post("/chat", json={"message": "Are there any recent alarms?", "machine_id": "MCH-0001"})
 
-    monkeypatch.setattr(main, "handle_chat", AsyncMock(side_effect=LlmRequestError()))
+    monkeypatch.setattr(chat, "handle_chat", AsyncMock(side_effect=LlmRequestError()))
     failure = client.post("/chat", json={"message": "Are there any recent alarms?", "machine_id": "MCH-0001"})
 
     assert success.status_code == 200
@@ -352,7 +353,7 @@ def test_chat_hides_unavailable_machine_existence(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, error: LookupError,
 ) -> None:
     handler = AsyncMock(side_effect=error)
-    monkeypatch.setattr(main, "handle_chat", handler)
+    monkeypatch.setattr(chat, "handle_chat", handler)
 
     response = client.post("/chat", json={"message": "Show me the recent operational history of MCH-9999.", "machine_id": "MCH-9999"})
 
@@ -368,7 +369,7 @@ def test_chat_hides_unavailable_machine_existence(
 
 def test_chat_forwards_bounded_history_to_the_orchestrator(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     handler = AsyncMock(return_value=OrchestrationResult(None, "Please clarify which alarm you mean."))
-    monkeypatch.setattr(main, "handle_chat", handler)
+    monkeypatch.setattr(chat, "handle_chat", handler)
     history = [
         {"role": "user", "content": "How many AL017_LOW_AIR_PRESSURE alarms occurred?"},
         {"role": "assistant", "content": "I found four occurrences."},
@@ -404,7 +405,7 @@ def test_manual_chat_returns_structured_sources(client: TestClient, monkeypatch:
         "similarity": 0.82,
     }
     monkeypatch.setattr(
-        main,
+        chat,
         "handle_chat",
         AsyncMock(return_value=OrchestrationResult(["manuals"], "I found 1 relevant manual source.", [source])),
     )

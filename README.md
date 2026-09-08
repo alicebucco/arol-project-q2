@@ -22,7 +22,6 @@ enforcing each user's company and role boundaries.
 
 ## Documentation
 
-- Dataset specification and access model: [`instructions.md`](instructions.md)
 - Technology stack: [`TECHSTACK.md`](TECHSTACK.md)
 - Database setup and data-ingestion details: [`db/README.md`](db/README.md)
 
@@ -181,7 +180,7 @@ from the same model.
 ## Repository layout
 
 ```text
-backend/       FastAPI application, agents, and tests
+backend/       FastAPI entry point, API routes, agents, and tests
 db/            PostgreSQL schema and local data-ingestion scripts
 frontend/      React/Vite single-page application
 data/          Local synthetic dataset and manuals (ignored by Git)

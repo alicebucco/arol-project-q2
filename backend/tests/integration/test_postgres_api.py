@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 import main
 from core.config import get_settings
-from core.data_access import find_manual_alarm_code_matches, search_manual_chunks
+from db.repositories.manuals import find_manual_alarm_code_matches, search_manual_chunks
 
 
 INTEGRATION_PASSWORD = "integration-password"

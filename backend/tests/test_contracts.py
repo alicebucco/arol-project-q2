@@ -7,12 +7,13 @@ from pydantic import ValidationError
 
 from core.contracts import AgentRequest, AgentResult, EvidenceSource, OrchestrationPlan, PlannerDecision
 from core.auth import AuthContext
-import core.operation_registry as operation_registry
-from core.operation_registry import (
+from core.operations import catalogue as operation_registry
+from core.operations import handlers as operation_handlers
+from core.operations.parameters import OperationParameters
+from core.operations.registry import (
     MissingOperationMachineContextError,
     OperationContext,
     OperationDefinition,
-    OperationParameters,
     OperationRegistry,
     UnknownOperationError,
 )
@@ -102,7 +103,7 @@ def test_registry_rejects_unknown_operations_and_operation_specific_parameters()
         registry.validate(AgentRequest(agent="iot", operation="not_registered"))
 
     # ``limit`` is valid for telemetry snapshots, not for a telemetry summary.
-    from core.operation_registry import OPERATION_REGISTRY
+    from core.operations.catalogue import OPERATION_REGISTRY
 
     with pytest.raises(ValidationError):
         OPERATION_REGISTRY.validate(
@@ -245,7 +246,7 @@ def test_registry_executes_only_with_trusted_required_machine_context() -> None:
 
 def test_registry_delegates_to_raw_agent_then_formats_the_result_in_core(monkeypatch) -> None:
     agent_operation = AsyncMock(return_value=[])
-    monkeypatch.setattr(operation_registry, "recent_alarms", agent_operation)
+    monkeypatch.setattr(operation_handlers, "recent_alarms", agent_operation)
 
     result = asyncio.run(
         operation_registry.OPERATION_REGISTRY.execute(
@@ -269,7 +270,7 @@ def test_registry_formats_exact_alarm_id_lookup(monkeypatch) -> None:
     agent_operation = AsyncMock(return_value=[
         {"alarm_id": "ALM-0045", "alarm_code": "AL024_FRONT_PANEL_EMERGENCY_PRESSED"}
     ])
-    monkeypatch.setattr(operation_registry, "alarms_by_id", agent_operation)
+    monkeypatch.setattr(operation_handlers, "alarms_by_id", agent_operation)
     user = AuthContext("USR-001", "CMP-001", "full")
 
     result = asyncio.run(
@@ -314,7 +315,7 @@ def test_registry_preserves_manual_alarm_code_match_metadata(monkeypatch) -> Non
         "unmatched_alarm_codes": [],
         "alarm_code_match_status": "exact_manual_match",
     })
-    monkeypatch.setattr(operation_registry, "search_with_match_status", agent_operation)
+    monkeypatch.setattr(operation_handlers, "search_with_match_status", agent_operation)
     user = AuthContext("USR-001", "CMP-001", "full")
 
     result = asyncio.run(operation_registry.OPERATION_REGISTRY.execute(
@@ -350,9 +351,9 @@ def test_registry_uses_final_list_operations_and_preserves_chat_arrays(monkeypat
         "is_truncated": False,
         "limit": 1,
     })
-    monkeypatch.setattr(operation_registry, "search_tickets", tickets)
-    monkeypatch.setattr(operation_registry, "search_orders", orders)
-    monkeypatch.setattr(operation_registry, "search_quotes", quotes)
+    monkeypatch.setattr(operation_handlers, "search_tickets", tickets)
+    monkeypatch.setattr(operation_handlers, "search_orders", orders)
+    monkeypatch.setattr(operation_handlers, "search_quotes", quotes)
     user = AuthContext("USR-001", "CMP-001", "full")
     machine_context = OperationContext(user=user, machine_id="MCH-0001")
     company_context = OperationContext(user=user)
@@ -401,7 +402,7 @@ def test_registry_uses_final_list_operations_and_preserves_chat_arrays(monkeypat
 
 def test_registry_uses_final_ticket_detail_operation(monkeypatch) -> None:
     detail_operation = AsyncMock(return_value={"ticket_id": "TCK-1", "ticket_status": "Open"})
-    monkeypatch.setattr(operation_registry, "ticket_detail", detail_operation)
+    monkeypatch.setattr(operation_handlers, "ticket_detail", detail_operation)
     user = AuthContext("USR-001", "CMP-001", "full")
 
     result = asyncio.run(operation_registry.OPERATION_REGISTRY.execute(

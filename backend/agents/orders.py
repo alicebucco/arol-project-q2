@@ -4,7 +4,7 @@ from datetime import date
 from typing import Any
 
 from core.auth import AuthContext, ensure_visibility
-from core.data_access import (
+from db.repositories.commercial import (
     get_company_order_detail,
     get_company_quote_history,
     search_company_commercial,

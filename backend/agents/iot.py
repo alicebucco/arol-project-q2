@@ -5,10 +5,9 @@ from typing import Any
 
 from core.alarm_codes import normalise_alarm_code
 from core.auth import AuthContext
-from core.data_access import (
-    authorize_machine,
+from db.repositories.machines import authorize_machine, get_company_machines
+from db.repositories.iot import (
     count_alarm_events,
-    get_company_machines,
     get_machine_configuration_profile,
     get_alarms_by_ids,
     get_observed_productive_hours,

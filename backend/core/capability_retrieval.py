@@ -7,7 +7,8 @@ from typing import Any
 
 from agents.manuals import EMBEDDING_DIMENSION, embedding_model
 from db.capability_repository import search_operation_capabilities
-from core.operation_registry import OPERATION_REGISTRY, OperationRegistry
+from core.operations.catalogue import OPERATION_REGISTRY
+from core.operations.registry import OperationRegistry
 
 
 DEFAULT_CANDIDATE_LIMIT = 12

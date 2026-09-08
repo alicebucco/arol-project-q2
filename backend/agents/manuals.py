@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 from core.auth import AuthContext
 from core.alarm_codes import ALARM_CODE_IN_TEXT_PATTERN, normalise_alarm_code
-from core.data_access import (
-    authorize_machine,
+from db.repositories.machines import authorize_machine
+from db.repositories.manuals import (
     find_manual_alarm_code_matches,
     get_manual_maintenance_chunks,
     manual_file_belongs_to_machine,

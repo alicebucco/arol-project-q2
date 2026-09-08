@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import core.planner as planner
-from core.operation_registry import OPERATION_REGISTRY
+from core.operations.catalogue import OPERATION_REGISTRY
 from core.planner import (
     PLANNER_DECISION_SYSTEM_PROMPT,
     CONTEXTUAL_PLANNER_SYSTEM_PROMPT,

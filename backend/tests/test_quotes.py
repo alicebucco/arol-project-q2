@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from core.data_access import _compare_quote_lines
+from db.repositories.commercial import _compare_quote_lines
 
 
 def test_quote_revision_comparison_reports_removed_added_and_changed_lines() -> None:

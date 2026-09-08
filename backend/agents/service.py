@@ -4,11 +4,9 @@ from datetime import date
 from typing import Any
 
 from core.auth import AuthContext
-from core.data_access import (
-    authorize_machine,
-    TicketNotFoundError,
-    search_maintenance_tickets,
-)
+from db.repositories.errors import TicketNotFoundError
+from db.repositories.machines import authorize_machine
+from db.repositories.service import search_maintenance_tickets
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
