@@ -475,7 +475,7 @@ async def _compose_validated_manual_answer(
             if 0 <= index < len(sentences):
                 selected.append(sentences[index])
     if not selected:
-        return "No directly supported manual claim was produced from the authorised evidence. Please review the sources below."
+        return "A relevant answer may be found in the sources below. Please review them."
     return "\n".join(dict.fromkeys(selected))
 
 
