@@ -23,8 +23,6 @@ enforcing each user's company and role boundaries.
 ## Documentation
 
 - Dataset specification and access model: [`instructions.md`](instructions.md)
-- Architecture: [`docs/architecture/00-overview.md`](docs/architecture/00-overview.md)
-- Architecture decisions: [`docs/decisions.md`](docs/decisions.md)
 - Technology stack: [`TECHSTACK.md`](TECHSTACK.md)
 - Database setup and data-ingestion details: [`db/README.md`](db/README.md)
 
@@ -162,12 +160,29 @@ The report contains file Recall@K, mean reciprocal rank, keyword coverage, exact
 page Recall@K, and page Recall@K within two adjacent pages. It contains citations
 and metrics only, never raw manual text.
 
+### Local orchestrator evaluation
+
+`data/evaluations/orchestrator_questions.yaml` is an ignored local suite for
+comparing an OpenAI-compatible LLM through the complete, authorised
+orchestrator path. It records deterministic checks for selected agents and
+manual citations, then preserves the expected facts and safety constraints for
+case-by-case review. It does not store the API key.
+
+```powershell
+docker compose run --rm rag-evaluator python scripts/evaluate_orchestrator.py --output /data/evaluations/orchestrator_evaluation_report.json --markdown-output /data/evaluations/orchestrator_evaluation_report.md
+```
+
+Set `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` in the root `.env` before
+each provider run. The report records the planner action, planned operations,
+executed operations, public manual citations, and chatbot response for every
+case. Run cases sequentially, and use `--repetitions` when measuring variation
+from the same model.
+
 ## Repository layout
 
 ```text
 backend/       FastAPI application, agents, and tests
 db/            PostgreSQL schema and local data-ingestion scripts
-docs/          Architecture and design decisions
 frontend/      React/Vite single-page application
 data/          Local synthetic dataset and manuals (ignored by Git)
 ```

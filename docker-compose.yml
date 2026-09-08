@@ -14,8 +14,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # Development tool for inspecting the database from a browser. 
-  # It is not part of the logical architecture (docs/architecture/02-containers.md).
+  # Development tool for inspecting the database from a browser.
+  # It is not required by the application at runtime.
   adminer:
     image: adminer
     restart: unless-stopped
@@ -25,7 +25,6 @@ services:
       - db
 
   # Backend code is expected in ./backend (FastAPI entry point: main:app).
-  # See docs/architecture/02-containers.md and 03-components.md.
   backend:
     build:
       context: ./backend
@@ -72,7 +71,6 @@ services:
         condition: service_healthy
 
   # Frontend code is expected in ./frontend (React + TypeScript, Vite).
-  # See docs/architecture/02-containers.md.
   frontend:
     image: node:20-alpine
     restart: unless-stopped
