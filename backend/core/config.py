@@ -15,9 +15,9 @@ class Settings(BaseSettings):
     postgres_password: SecretStr
     postgres_db: str = "arol"
     postgres_connect_timeout: int = 3
-    llm_base_url: str = "https://api.inceptionlabs.ai/v1"
+    llm_base_url: str = "https://api.groq.com/openai/v1"
     llm_api_key: SecretStr | None = None
-    llm_model: str = "mercury-2"
+    llm_model: str = "openai/gpt-oss-20b"
     auth_jwt_secret: SecretStr | None = None
     auth_jwt_expire_minutes: int = 60
 
