@@ -1,0 +1,1275 @@
+schema_version: 1
+dataset:
+  name: AROL orchestrator evaluation
+  version: "0.1"
+  description: >
+    Orchestrator evaluation cases based on the entire available synthetic
+    dataset. Unless otherwise specified, no time filter is applied. This file
+    contains local evaluation data and must not be published.
+
+cases:
+  - id: resolved_ticket_alarms_mch0001_001
+    category: multi_agent
+    description: >
+      Identify the MCH-0001 alarms that led to the creation of a ticket that
+      was subsequently resolved.
+    question: >
+      Considering the entire dataset, which alarms recorded for MCH-0001 led
+      to the creation of a ticket that was resolved?
+    language: en
+    context:
+      machine_id: MCH-0001
+      time_range: all_available_data
+    expected:
+      intents:
+        - alarm_analysis
+        - service
+      agents:
+        - iot
+        - service
+      clarification_required: false
+      access: allowed
+      expected_alarm_codes:
+        - alarm_code: AL024_FRONT_PANEL_EMERGENCY_PRESSED
+          resolved_ticket_count: 1
+        - alarm_code: AL031_HEADS_MOTOR_OVERLOAD
+          resolved_ticket_count: 1
+        - alarm_code: AL083_FALLEN_BOTTLE_ALARM
+          resolved_ticket_count: 1
+        - alarm_code: AL086_LINE_EMERGENCY_PRESSED
+          resolved_ticket_count: 1
+      required_conditions:
+        - The answer must consider the entire dataset.
+        - The answer must consider only alarms belonging to MCH-0001.
+        - Every returned alarm must be linked to a ticket whose status is Resolved.
+        - The answer must return exactly the four expected alarm codes.
+        - The answer must report one resolved ticket for each expected alarm code.
+      forbidden_claims:
+        - The answer must not include alarms linked only to open or unresolved tickets.
+        - The answer must not include data belonging to other machines.
+        - The answer must not confuse the number of resolved tickets with the total number of alarm events.
+
+  - id: alarm_occurrence_count_mch0001_001
+    category: alarm_analysis
+    description: >
+      Count the occurrences of a specific alarm code across the entire
+      dataset.
+    question: >
+      Considering the entire dataset, how many times was the
+      AL082_MINIMUM_CAPS_LEVEL alarm recorded for MCH-0001?
+    language: en
+    context:
+      machine_id: MCH-0001
+      alarm_code: AL082_MINIMUM_CAPS_LEVEL
+      time_range: all_available_data
+    expected:
+      intents:
+        - alarm_analysis
+      agents:
+        - iot
+      clarification_required: false
+      access: allowed
+      expected_facts:
+        machine_id: MCH-0001
+        alarm_code: AL082_MINIMUM_CAPS_LEVEL
+        occurrences: 5
+      required_conditions:
+        - The answer must consider the entire dataset.
+        - The answer must count only events belonging to MCH-0001.
+        - The answer must state that AL082_MINIMUM_CAPS_LEVEL was recorded 5 times.
+      forbidden_claims:
+        - The answer must not count alarms belonging to other machines.
+        - The answer must not interpret 5 as the number of tickets.
+        - The answer must not add causes or procedures that were not requested.
+
+  - id: undocumented_alarm_guidance_mch0001_001
+    category: alarm_guidance
+    description: >
+      Explain a code that is present in the operational data but is not
+      explicitly documented in the manual available for the machine.
+    question: >
+      Can you explain what the AL083_FALLEN_BOTTLE_ALARM error code means for
+      machine MCH-0001?
+    language: en
+    context:
+      machine_id: MCH-0001
+      alarm_code: AL083_FALLEN_BOTTLE_ALARM
+      time_range: all_available_data
+    expected:
+      intents:
+        - alarm_guidance
+      agents:
+        - iot
+        - manuals
+      clarification_required: false
+      access: allowed
+      expected_facts:
+        machine_id: MCH-0001
+        alarm_code: AL083_FALLEN_BOTTLE_ALARM
+        readable_meaning: Fallen bottle alarm
+        exact_manual_documentation_found: false
+      required_conditions:
+        - The answer must explain that the readable code name refers to a fallen bottle alarm.
+        - The answer must clarify that this meaning is inferred from the code name.
+        - The answer must state that AL083 was not found explicitly in the available manual.
+        - The answer must state that specific causes or procedures cannot be confirmed.
+      forbidden_claims:
+        - The answer must not claim that AL083 is explicitly documented in the manual.
+        - The answer must not invent the cause of the fallen bottle.
+        - The answer must not invent checks or recovery procedures.
+        - The answer must not present semantically similar passages as confirmed documentation for AL083.
+      expected_answer_example: >
+        Based on its readable name, AL083_FALLEN_BOTTLE_ALARM indicates an
+        alarm related to a fallen bottle. However, I could not find a section
+        in the available manual that explicitly documents AL083. I therefore
+        cannot confirm specific causes, checks, or recovery procedures.
+
+  - id: maintenance_man_qualities_mch0001_001
+    category: manuals
+    description: >
+      Retrieve the documented qualifications required for a Maintenance Man
+      from the manual associated with MCH-0001.
+    question: >
+      What qualities should a Maintenance Man have?
+    language: en
+    context:
+      machine_id: MCH-0001
+      time_range: not_applicable
+    expected:
+      intents:
+        - manuals
+      agents:
+        - manuals
+      clarification_required: false
+      access: allowed
+      expected_source:
+        file: 15610_manual_EN.pdf
+        page: 24
+      expected_facts:
+        - A Maintenance Man must have good technical preparation.
+        - A Maintenance Man must have suitable working experience in the relevant field.
+        - A Maintenance Man must have specific mechanical and electrical technical knowledge.
+        - The required knowledge must be suitable for the operations described in the manual.
+      required_conditions:
+        - The answer must be based on the manual associated with MCH-0001.
+        - The answer must include a citation to page 24 of 15610_manual_EN.pdf.
+        - The answer must preserve the meaning of the documented requirements without adding unsupported qualifications.
+      forbidden_claims:
+        - The answer must not invent certifications, degrees, licences, or training requirements not stated in the source passage.
+        - The answer must not use operational, alarm, service, or commercial data.
+        - The answer must not cite a different manual as the supporting source.
+      reference_passage: >
+        The Maintenance Man (mechanical/electrical), besides the above
+        characteristics, must also have a good technical preparation and a
+        suitable working experience in the relevant field. Further, he must
+        have specific and special (mechanical and electrical) technical
+        knowledge needed for the operations described in this manual.
+      expected_answer_example: >
+        According to the machine manual, a Maintenance Man should have good
+        technical preparation, suitable experience in the relevant field,
+        and the specific mechanical and electrical knowledge required for the
+        maintenance operations described in the manual. Source:
+        15610_manual_EN.pdf, page 24.
+
+  - id: observed_hours_maintenance_mch0003_001
+    category: multi_agent
+    description: >
+      Compare the productive hours observed for MCH-0003 with the maintenance
+      intervals documented in its manual and identify the associated
+      activities without claiming access to a lifetime hour counter or a
+      complete maintenance history.
+    question: >
+      Based on the productive hours observed for MCH-0003, which documented
+      maintenance thresholds have been reached, and which activities does the
+      manual associate with them?
+    language: en
+    context:
+      machine_id: MCH-0003
+      time_range: all_available_data
+    expected:
+      intents:
+        - maintenance_due
+        - manual_guidance
+      agents:
+        - iot
+        - service
+        - manuals
+      clarification_required: false
+      access: allowed
+      expected_source:
+        file: 17579_manual_EN.pdf
+        page: 97
+      expected_facts:
+        machine_id: MCH-0003
+        observed_productive_hours: 321.53
+        periodic_interval_hours: 40
+        latest_reached_periodic_interval_hours: 320
+        next_documented_threshold_hours: 500
+        documented_activities:
+          - Check the operation of the safety devices.
+          - Check the pneumatic system.
+        maintenance_completion_history_available: false
+      required_conditions:
+        - The answer must describe 321.53 hours as productive hours observed in the available telemetry window.
+        - The answer must state that the 40-hour maintenance interval has been reached repeatedly.
+        - The answer must identify 320 hours as the latest reached 40-hour interval.
+        - The answer must identify 500 hours as the next documented threshold.
+        - The answer must mention checking the operation of the safety devices.
+        - The answer must mention checking the pneumatic system.
+        - The answer must cite page 97 of 17579_manual_EN.pdf for the documented 40-hour activities.
+        - The answer must clarify that the available data does not show whether these maintenance activities have already been completed.
+      forbidden_claims:
+        - The answer must not describe 321.53 hours as the machine's lifetime operating hours.
+        - The answer must not claim with certainty that maintenance is overdue.
+        - The answer must not claim that the 500-hour threshold has been reached.
+        - The answer must not invent additional maintenance activities.
+        - The answer must not claim that the maintenance completion history is available.
+      expected_answer_example: >
+        MCH-0003 has 321.53 observed productive hours in the available
+        telemetry window. The manual specifies maintenance checks every 40
+        working hours, so the 40-hour interval has been reached repeatedly,
+        most recently at 320 hours. The documented activities are checking
+        the operation of the safety devices and checking the pneumatic system
+        (17579_manual_EN.pdf, page 97). The next documented maintenance
+        threshold is 500 hours. However, the available data does not show
+        whether the required 40-hour maintenance activities have already been
+        completed.
+
+  - id: low_air_pressure_manual_guidance_mch0001_001
+    category: multi_agent
+    description: >
+      Combine the recorded occurrences of AL017_LOW_AIR_PRESSURE for MCH-0001
+      with relevant pressure information from its manual, while avoiding an
+      unsupported causal link between the alarm and the documented sterile-air
+      pressure range.
+    question: >
+      Considering the entire dataset, how many times was
+      AL017_LOW_AIR_PRESSURE recorded for MCH-0001, what pressure requirements
+      or checks are documented in its manual, and can the available evidence
+      establish why the alarms occurred?
+    language: en
+    context:
+      machine_id: MCH-0001
+      alarm_code: AL017_LOW_AIR_PRESSURE
+      time_range: all_available_data
+    expected:
+      intents:
+        - alarm_analysis
+        - alarm_guidance
+        - manual_guidance
+      agents:
+        - iot
+        - iot
+        - manuals
+      clarification_required: false
+      access: allowed
+      expected_sources:
+        - file: 15610_manual_EN.pdf
+          page: 21
+          purpose: Documented sterile-air pressure range.
+        - file: 15610_manual_EN.pdf
+          page: 47
+          purpose: Documented pressure check before starting the machine.
+      expected_facts:
+        machine_id: MCH-0001
+        alarm_code: AL017_LOW_AIR_PRESSURE
+        occurrences: 4
+        sterile_air_minimum_pressure_bar: 5
+        sterile_air_maximum_pressure_bar: 8
+        startup_check: Check that the working pressure is correct using the pressure gauges.
+        pressure_measurements_at_alarm_time_available: false
+        exact_alarm_cause_established: false
+      required_conditions:
+        - The answer must consider the entire dataset and count only events belonging to MCH-0001.
+        - The answer must state that AL017_LOW_AIR_PRESSURE was recorded 4 times.
+        - The answer must identify 5 to 8 bar as the range documented specifically for sterile air.
+        - The answer must cite page 21 of 15610_manual_EN.pdf for the sterile-air pressure range.
+        - The answer must state that the manual requires checking the working pressure on the pressure gauges before starting the machine.
+        - The answer must cite page 47 of 15610_manual_EN.pdf for the pre-start pressure check.
+        - The answer must clarify that no pressure measurements at the times of the alarms are available.
+        - The answer must distinguish relevant manual guidance from a confirmed explanation of the alarm events.
+      forbidden_claims:
+        - The answer must not claim that the pressure was below 5 bar when an alarm occurred.
+        - The answer must not claim that AL017 is explicitly tied to the documented sterile-air pressure range.
+        - The answer must not describe 5 to 8 bar as a confirmed threshold for triggering AL017.
+        - The answer must not claim that the manual establishes the exact cause of the recorded alarms.
+        - The answer must not invent pressure readings, faulty components, causes, or recovery procedures.
+        - The answer must not use alarm events or manual content belonging to another machine.
+      reference_passages:
+        - >
+          The technical data documents a minimum sterile-air pressure of 5 bar
+          and a maximum sterile-air pressure of 8 bar.
+        - >
+          Before starting the closing machine, check that the working pressure
+          is correct; the pressure is indicated on the pressure gauges.
+      expected_answer_example: >
+        AL017_LOW_AIR_PRESSURE was recorded 4 times for MCH-0001 across the
+        entire dataset. The machine manual documents a sterile-air pressure
+        range of 5 to 8 bar (15610_manual_EN.pdf, page 21) and instructs the
+        operator to check before startup that the working pressure is correct
+        using the pressure gauges (15610_manual_EN.pdf, page 47). These are
+        relevant checks, but the available data contains no pressure readings
+        from the times of the alarms, and the manual evidence does not
+        explicitly link AL017 to the sterile-air range. Therefore, the exact
+        cause of the recorded alarms cannot be established.
+
+  - id: recurring_cap_alarms_troubleshoot_mch0001_001
+    category: diagnostics
+    description: >
+      Identify the recurring alarm patterns for MCH-0001, retrieve relevant
+      guidance about its cap-feeding system from the machine-specific manual,
+      and avoid presenting the recurring subsystem or semantically related
+      manual passages as a confirmed root cause.
+    question: >
+      Considering the entire dataset, what recurring problems are visible in
+      the alarm history of MCH-0001, which instructions in its manual are
+      relevant to the most common affected area, and what can be concluded
+      about the root cause?
+    language: en
+    context:
+      machine_id: MCH-0001
+      time_range: all_available_data
+    expected:
+      intents:
+        - diagnostic
+        - alarm_analysis
+        - manual_guidance
+      agents:
+        - iot
+        - manuals
+      clarification_required: false
+      access: allowed
+      expected_sources:
+        - file: 15610_manual_EN.pdf
+          page: 18
+          purpose: Description and operating principles of the Twin Hopper cap-feeding system.
+        - file: 15610_manual_EN.pdf
+          page: 46
+          purpose: Documented operation of the Twin Hopper system when caps are missing or a transfer-disk check error occurs.
+      expected_alarm_patterns:
+        - alarm_code: AL082_MINIMUM_CAPS_LEVEL
+          occurrences: 5
+        - alarm_code: AL023_CAPS_CHECK_INTERVENTION
+          occurrences: 4
+        - alarm_code: AL074_OVERTURNED_CAPS_CHECK
+          occurrences: 4
+        - alarm_code: AL016_CAPS_CHUTE_FULL
+          occurrences: 4
+      expected_facts:
+        machine_id: MCH-0001
+        most_common_affected_area: Cap feeding and cap checking
+        confirmed_root_cause_available: false
+        relevant_manual_guidance:
+          - Keep both cap chutes full.
+          - Keep the cap sorter full.
+          - Give operating priority to the primary cap chute.
+          - If caps are missing from the chute or the first transfer-disk release check reports an error, the system uses the secondary cap chute.
+          - If the problem is in the cap chute or on the transfer disk, production may continue temporarily with the secondary chute while the bottle flow is stopped to restore the priority chute.
+      required_conditions:
+        - The answer must consider the entire available alarm dataset for MCH-0001.
+        - The answer must identify AL082_MINIMUM_CAPS_LEVEL as the most frequent alarm with 5 occurrences.
+        - The answer must report 4 occurrences each for AL023_CAPS_CHECK_INTERVENTION, AL074_OVERTURNED_CAPS_CHECK, and AL016_CAPS_CHUTE_FULL.
+        - The answer must identify cap feeding and cap checking as the area shared by the most frequent recurring conditions.
+        - The answer must cite pages 18 and 46 of 15610_manual_EN.pdf for the relevant Twin Hopper guidance.
+        - The answer must distinguish observed alarm patterns from the manual's general operating guidance.
+        - The answer must state that the available evidence does not establish a confirmed root cause.
+      forbidden_claims:
+        - The answer must not claim that any of the expected alarm codes is explicitly documented on pages 18 or 46.
+        - The answer must not claim that a lack of caps is the confirmed root cause of all the recurring alarms.
+        - The answer must not claim that the primary cap chute, secondary cap chute, cap sorter, photocell, or transfer disk is known to be faulty.
+        - The answer must not present a semantically related manual passage as an exact alarm-code procedure.
+        - The answer must not invent inspections, adjustments, replaced components, or completed repairs.
+        - The answer must not include alarms or manual content belonging to another machine.
+      reference_passages:
+        - >
+          The Twin Hopper feeding system uses two independent cap chutes. For
+          correct operation, both cap chutes and the cap sorter should be kept
+          full, with operating priority given to the primary chute.
+        - >
+          If caps are missing from the cap chute or the first transfer-disk
+          release check reports an error, cap release is performed through the
+          secondary chute. If the error is in the chute or on the transfer
+          disk, production can continue with the secondary chute while bottle
+          flow is stopped to restore the priority chute.
+      expected_answer_example: >
+        Across the entire dataset, the most frequent recurring alarm for
+        MCH-0001 is AL082_MINIMUM_CAPS_LEVEL with 5 occurrences.
+        AL023_CAPS_CHECK_INTERVENTION, AL074_OVERTURNED_CAPS_CHECK, and
+        AL016_CAPS_CHUTE_FULL each occurred 4 times. Together, these patterns
+        indicate that cap feeding and cap checking are the most commonly
+        affected area. The manual describes the Twin Hopper system and states
+        that both cap chutes and the cap sorter should be kept full, with
+        priority given to the primary chute (15610_manual_EN.pdf, page 18). It
+        also explains how the secondary chute is used when caps are missing or
+        a transfer-disk release check reports an error, and how the priority
+        chute can be restored (page 46). These instructions identify relevant
+        areas to inspect, but they do not explicitly document the listed alarm
+        codes or establish the root cause of the recorded events.
+
+  - id: recurring_bottle_handling_troubleshoot_mch0006_001
+    category: diagnostics
+    description: >
+      Identify recurring bottle-handling alarm patterns for MCH-0006, retrieve
+      relevant checks and adjustments from its machine-specific manual, and
+      avoid treating related troubleshooting passages as confirmed causes of
+      the recorded alarms.
+    question: >
+      Considering the entire dataset, what recurring bottle-handling problems
+      are visible for MCH-0006, which checks or adjustments documented in its
+      manual are relevant, and what can be concluded about the root cause?
+    language: en
+    context:
+      machine_id: MCH-0006
+      time_range: all_available_data
+    expected:
+      intents:
+        - diagnostic
+        - alarm_analysis
+        - manual_guidance
+      agents:
+        - iot
+        - manuals
+      clarification_required: false
+      access: allowed
+      expected_sources:
+        - file: A2064_manual_EN.pdf
+          page: 39
+          purpose: Preliminary checks for container format, closure-unit height, and equipment alignment.
+        - file: A2064_manual_EN.pdf
+          page: 111
+          purpose: Troubleshooting guidance concerning starwheel timing, transfer equipment, and head height.
+      expected_alarm_patterns:
+        - alarm_code: AL057_BOTTLE_TOO_HIGH
+          occurrences: 7
+        - alarm_code: AL051_ENTRANCE_FEED_SCREW_SENSOR
+          occurrences: 3
+        - alarm_code: AL052_INFEED_STARWHEEL_SENSOR
+          occurrences: 2
+        - alarm_code: AL053_OUTFEED_STARWHEEL_SENSOR
+          occurrences: 1
+        - alarm_code: AL054_TRANSFER_STARWHEEL_SENSOR
+          occurrences: 1
+      expected_facts:
+        machine_id: MCH-0006
+        most_common_alarm_code: AL057_BOTTLE_TOO_HIGH
+        most_common_affected_area: Bottle handling, transfer, and height
+        confirmed_root_cause_available: false
+        relevant_manual_guidance:
+          - Verify that the installed equipment is suitable for the container size being processed.
+          - Verify the correspondence between the container and cap.
+          - Check the height of the closure unit according to the container height.
+          - Check equipment alignment with a complete slow-speed cycle in jog mode after feeding a few containers.
+          - Check starwheel timing, suitable transfer equipment, and correct head height when investigating the related documented container-handling faults.
+      required_conditions:
+        - The answer must consider the entire available alarm dataset for MCH-0006.
+        - The answer must identify AL057_BOTTLE_TOO_HIGH as the most frequent alarm with 7 occurrences.
+        - The answer must report 3 occurrences of AL051_ENTRANCE_FEED_SCREW_SENSOR and 2 occurrences of AL052_INFEED_STARWHEEL_SENSOR.
+        - The answer must report 1 occurrence each of AL053_OUTFEED_STARWHEEL_SENSOR and AL054_TRANSFER_STARWHEEL_SENSOR.
+        - The answer must identify bottle handling, transfer, and height as the area shared by the selected alarm patterns.
+        - The answer must cite pages 39 and 111 of A2064_manual_EN.pdf for the relevant checks and troubleshooting guidance.
+        - The answer must distinguish observed alarm patterns from the manual's general and symptom-based guidance.
+        - The answer must state that the available evidence does not establish a confirmed root cause.
+      forbidden_claims:
+        - The answer must not claim that any expected alarm code is explicitly documented on pages 39 or 111.
+        - The answer must not claim that the closure head is known to be incorrectly adjusted.
+        - The answer must not claim that a starwheel is known to be incorrectly timed.
+        - The answer must not claim that the installed transfer equipment is known to be unsuitable.
+        - The answer must not present a semantically related manual passage as an exact alarm-code procedure.
+        - The answer must not invent inspections, adjustments, replaced components, or completed repairs.
+        - The answer must not include alarms or manual content belonging to another machine.
+      reference_passages:
+        - >
+          Before startup, verify that the installed equipment is suitable for
+          the size being processed, check the correspondence between container
+          and cap, check the closure-unit height according to the container
+          height, and verify alignment with a slow cycle in jog mode.
+        - >
+          For the documented symptoms involving damaged or badly guided
+          containers, the troubleshooting table identifies starwheel timing,
+          suitable transfer equipment, and correct head height as relevant
+          checks and adjustments.
+      expected_answer_example: >
+        MCH-0006 recorded 7 occurrences of AL057_BOTTLE_TOO_HIGH. Other
+        bottle-handling conditions include AL051_ENTRANCE_FEED_SCREW_SENSOR
+        with 3 occurrences, AL052_INFEED_STARWHEEL_SENSOR with 2, and
+        AL053_OUTFEED_STARWHEEL_SENSOR and AL054_TRANSFER_STARWHEEL_SENSOR with
+        1 each. These patterns make bottle handling, transfer, and height
+        relevant areas to inspect. The manual instructs operators to verify
+        that the installed equipment is suitable for the container format,
+        check the closure-unit height, and confirm equipment alignment with a
+        slow test cycle (A2064_manual_EN.pdf, page 39). Its troubleshooting
+        table also discusses starwheel timing, suitable transfer equipment,
+        and correct head height for related container-handling symptoms (page
+        111). However, these passages do not explicitly document the recorded
+        alarm codes, so the available evidence does not establish which
+        component or adjustment caused the alarms.
+
+  - id: recurring_motor_overloads_troubleshoot_mch0007_001
+    category: diagnostics
+    description: >
+      Identify the recurring motor-overload conditions for MCH-0007, keep the
+      head motor and cap-sorter motor distinct, retrieve relevant manual
+      inspection guidance, and avoid asserting an unsupported common cause.
+    question: >
+      Considering the entire dataset, which recurring motor-overload
+      conditions are visible for MCH-0007, which checks documented in its
+      manual are relevant to the affected components, and can the underlying
+      cause be identified?
+    language: en
+    context:
+      machine_id: MCH-0007
+      time_range: all_available_data
+    expected:
+      intents:
+        - diagnostic
+        - alarm_analysis
+        - manual_guidance
+      agents:
+        - iot
+        - manuals
+      clarification_required: false
+      access: allowed
+      expected_sources:
+        - file: A2055_manual_EN.pdf
+          page: 38
+          purpose: Startup checks for motor absorption and rotation direction.
+        - file: A2055_manual_EN.pdf
+          page: 44
+          purpose: Maintenance checks for closure heads and freely rotating rollers.
+        - file: A2055_manual_EN.pdf
+          page: 46
+          purpose: Checks for abnormal noise or vibration in motorization components.
+        - file: A2055_manual_EN.pdf
+          page: 88
+          purpose: Check of the cap orientator internal-disc rotation direction.
+      expected_alarm_patterns:
+        - alarm_code: AL031_HEADS_MOTOR_OVERLOAD
+          occurrences: 6
+        - alarm_code: AL032_CAPS_SORTER_MOTOR_OVERLOAD
+          occurrences: 6
+      expected_facts:
+        machine_id: MCH-0007
+        affected_components:
+          - Head motor
+          - Cap-sorter motor
+        confirmed_root_cause_available: false
+        relevant_manual_guidance:
+          - Check the motor absorption and rotation direction before startup.
+          - Clean the closure heads and verify that the threading and seaming rollers rotate freely.
+          - Check for abnormal noise or vibration in motors, reducers, gears, and bearings.
+          - Check that the cap orientator internal disc rotates in the correct direction.
+      required_conditions:
+        - The answer must consider the entire available alarm dataset for MCH-0007.
+        - The answer must report 6 occurrences of AL031_HEADS_MOTOR_OVERLOAD.
+        - The answer must report 6 occurrences of AL032_CAPS_SORTER_MOTOR_OVERLOAD.
+        - The answer must keep the head-motor overload and cap-sorter-motor overload as distinct recorded conditions.
+        - The answer must cite pages 38, 44, 46, and 88 of A2055_manual_EN.pdf for the relevant checks.
+        - The answer must distinguish documented inspection areas from confirmed causes of the alarms.
+        - The answer must state that the available evidence does not identify the underlying cause of either overload condition.
+      forbidden_claims:
+        - The answer must not claim that AL031 or AL032 is explicitly documented on the cited manual pages.
+        - The answer must not claim that both overload conditions have the same cause.
+        - The answer must not claim that the motor rotation direction is known to be incorrect.
+        - The answer must not claim that the closure-head rollers are known to be blocked.
+        - The answer must not claim that abnormal noise, vibration, friction, wear, or an electrical fault was observed.
+        - The answer must not present a semantically related manual passage as an exact alarm-code procedure.
+        - The answer must not invent inspections, adjustments, replaced components, or completed repairs.
+        - The answer must not include alarms or manual content belonging to another machine.
+      reference_passages:
+        - >
+          Before startup, check the correct motor absorption and rotation
+          direction.
+        - >
+          Planned maintenance includes cleaning the closure heads and checking
+          that the threading and seaming rollers rotate freely.
+        - >
+          Check for abnormal noise or vibration in motorization components,
+          including motors, reducers, gears, and bearings.
+        - >
+          During cap-orientator installation, check that the internal disc
+          rotates in the correct direction.
+      expected_answer_example: >
+        MCH-0007 recorded 6 occurrences of AL031_HEADS_MOTOR_OVERLOAD and 6
+        occurrences of AL032_CAPS_SORTER_MOTOR_OVERLOAD. These are two distinct
+        recurring conditions involving the head motor and the cap-sorter
+        motor. The manual recommends checking motor absorption and rotation
+        direction (A2055_manual_EN.pdf, page 38), cleaning the closure heads
+        and verifying that their rollers rotate freely (page 44), and checking
+        for abnormal noise or vibration in motors, reducers, gears, and
+        bearings (page 46). It also describes checking the rotation direction
+        of the cap orientator's internal disc (page 88). These are relevant
+        inspection areas, but the cited passages do not explicitly document
+        AL031 or AL032, and the available data does not identify the underlying
+        cause of either overload condition.
+
+  - id: active_maintenance_tickets_mch0003_001
+    category: service
+    description: >
+      Identify the maintenance tickets for MCH-0003 that still have a
+      non-final status and report their service details and related alarm
+      without including completed tickets or data from another machine.
+    question: >
+      Considering the entire dataset, which maintenance tickets for MCH-0003
+      are still active, and what are their type, priority, owner role, and
+      related alarm?
+    language: en
+    context:
+      machine_id: MCH-0003
+      time_range: all_available_data
+    expected:
+      intents:
+        - service
+        - alarm_analysis
+      agents:
+        - service
+        - iot
+      clarification_required: false
+      access: allowed
+      expected_facts:
+        active_ticket_count: 1
+        active_statuses:
+          - Open
+          - In progress
+          - Waiting for parts
+        tickets:
+          - ticket_id: TCK-0044
+            ticket_type: Remote troubleshooting
+            ticket_status: Open
+            priority: High
+            owner_role: AROL Technical Service
+            alarm_id: ALM-0111
+            alarm_code: AL061_LEFT_FRONT_DOOR_OPEN
+      required_conditions:
+        - The answer must consider the entire maintenance-ticket dataset for MCH-0003.
+        - The answer must treat Open, In progress, and Waiting for parts as active statuses for this question.
+        - The answer must return TCK-0044 as the only active ticket.
+        - The answer must report the expected type, status, priority, owner role, and related alarm for TCK-0044.
+        - The answer must resolve ALM-0111 to AL061_LEFT_FRONT_DOOR_OPEN without confusing the alarm identifier with the alarm code.
+      forbidden_claims:
+        - The answer must not include TCK-0042 or TCK-0049 as active tickets.
+        - The answer must not include tickets belonging to another machine.
+        - The answer must not claim that Open means the associated technical problem has been diagnosed.
+        - The answer must not invent work performed, findings, resolution details, or completion dates.
+      expected_answer_example: >
+        MCH-0003 has one active maintenance ticket in the entire dataset:
+        TCK-0044. It is an Open, High-priority Remote troubleshooting ticket
+        owned by AROL Technical Service. It is linked through alarm ID
+        ALM-0111 to AL061_LEFT_FRONT_DOOR_OPEN. The available ticket data does
+        not describe any diagnosis, work performed, or expected completion
+        date.
+
+  - id: non_alarm_service_activities_mch0001_001
+    category: service
+    description: >
+      Retrieve scheduled or assistance activities for MCH-0001 that were not
+      initiated by an alarm, preserving tickets whose alarm reference is null.
+    question: >
+      Which MCH-0001 tickets represent scheduled or assistance activities
+      rather than interventions triggered by an alarm?
+    language: en
+    context:
+      machine_id: MCH-0001
+      time_range: all_available_data
+    expected:
+      intents:
+        - service
+      agents:
+        - service
+      clarification_required: false
+      access: allowed
+      expected_facts:
+        ticket_count: 3
+        tickets:
+          - ticket_id: TCK-0014
+            ticket_type: Scheduled maintenance
+            ticket_status: Resolved
+            alarm_id: null
+          - ticket_id: TCK-0039
+            ticket_type: Scheduled maintenance
+            ticket_status: Resolved
+            alarm_id: null
+          - ticket_id: TCK-0060
+            ticket_type: Size change assistance
+            ticket_status: Closed
+            alarm_id: null
+      required_conditions:
+        - The answer must consider the entire maintenance-ticket dataset for MCH-0001.
+        - The answer must select tickets whose alarm reference is absent.
+        - The answer must return exactly TCK-0014, TCK-0039, and TCK-0060.
+        - The answer must distinguish the two Scheduled maintenance tickets from the Size change assistance ticket.
+        - The answer must preserve the expected status of each ticket.
+      forbidden_claims:
+        - The answer must not omit tickets merely because their alarm reference is null.
+        - The answer must not associate any of the expected tickets with an alarm code.
+        - The answer must not claim that these activities were triggered by a technical fault.
+        - The answer must not invent work performed, replaced components, or reasons for the activities.
+        - The answer must not include alarm-linked tickets or tickets belonging to another machine.
+      expected_answer_example: >
+        Three MCH-0001 tickets represent activities that were not triggered by
+        an alarm: TCK-0014 and TCK-0039 are Resolved Scheduled maintenance
+        tickets, while TCK-0060 is a Closed Size change assistance ticket. All
+        three have no related alarm. The dataset does not provide further
+        details about the work performed or the reasons for these activities.
+
+  - id: active_door_alarm_ticket_manual_guidance_mch0003_001
+    category: multi_agent
+    description: >
+      Combine an active maintenance ticket and its related open alarm for
+      MCH-0003 with relevant general safety guidance from the machine-specific
+      manual, without treating that guidance as an exact procedure for the
+      alarm or inferring an undocumented fault.
+    question: >
+      MCH-0003 has an active ticket related to
+      AL061_LEFT_FRONT_DOOR_OPEN. What does the service history establish,
+      which safety guidance in the machine manual is relevant while the issue
+      remains open, and what cannot be concluded from the available evidence?
+    language: en
+    context:
+      machine_id: MCH-0003
+      alarm_code: AL061_LEFT_FRONT_DOOR_OPEN
+      time_range: all_available_data
+    expected:
+      intents:
+        - service
+        - alarm_analysis
+        - manual_guidance
+      agents:
+        - service
+        - iot
+        - manuals
+      clarification_required: false
+      access: allowed
+      expected_sources:
+        - file: 17579_manual_EN.pdf
+          page: 20
+          purpose: Operator response to a failure that might compromise safety.
+        - file: 17579_manual_EN.pdf
+          page: 27
+          purpose: General safety requirements concerning fixed guards and isolation from power sources.
+      expected_facts:
+        machine_id: MCH-0003
+        ticket_id: TCK-0044
+        ticket_type: Remote troubleshooting
+        ticket_status: Open
+        ticket_priority: High
+        ticket_owner_role: AROL Technical Service
+        alarm_id: ALM-0111
+        alarm_code: AL061_LEFT_FRONT_DOOR_OPEN
+        alarm_severity: High
+        alarm_status: Open
+        alarm_timestamp: "2026-07-29T17:35"
+        documented_diagnosis_available: false
+        documented_repair_available: false
+        expected_completion_date_available: false
+        relevant_manual_guidance:
+          - If an operator identifies a failure that might compromise safety, the machine must be stopped using the emergency-stop controls.
+          - Operators must not intervene on electrical or pneumatic equipment.
+          - The machine must not be used after fixed guards have been removed.
+          - Before accessing an area protected by a fixed guard, the machine must be isolated from all power sources.
+      required_conditions:
+        - The answer must identify TCK-0044 as the active ticket linked to the specified alarm.
+        - The answer must report the expected ticket type, status, priority, and owner role.
+        - The answer must distinguish alarm ID ALM-0111 from alarm code AL061_LEFT_FRONT_DOOR_OPEN.
+        - The answer must state that the related alarm is High severity and Open.
+        - The answer must cite page 20 of 17579_manual_EN.pdf for the conditional emergency-stop instruction and the prohibition on operator intervention in electrical or pneumatic equipment.
+        - The answer must cite page 27 of 17579_manual_EN.pdf for the general fixed-guard and power-isolation requirements.
+        - The answer must present the manual passages as relevant general safety guidance rather than an exact AL061 procedure.
+        - The answer must state that the available evidence does not provide a diagnosis, repair procedure, completed work, or expected completion date.
+      forbidden_claims:
+        - The answer must not claim that AL061 is explicitly documented on pages 20 or 27.
+        - The answer must not claim that the left front door is the fixed guard described on page 27.
+        - The answer must not claim that the door itself, its sensor, or its interlock is known to be faulty.
+        - The answer must not claim that any repair or inspection has already been performed.
+        - The answer must not claim that an emergency stop alone makes the machine safe for maintenance or access to a guarded area.
+        - The answer must not invent a cause, corrective action, responsible technician, required spare part, or expected completion date.
+        - The answer must not include tickets, alarms, or manual content belonging to another machine.
+      reference_passages:
+        - >
+          When an operator identifies a failure that might compromise safety,
+          the operator must stop the closing machine using the emergency-stop
+          controls and must not intervene on electrical or pneumatic equipment.
+        - >
+          The machine must not be used after fixed guards have been removed.
+          Before accessing an area protected by a fixed guard, the closing
+          machine must be isolated from all power sources.
+      expected_answer_example: >
+        The service history shows that TCK-0044 is an Open, High-priority
+        Remote troubleshooting ticket owned by AROL Technical Service. It is
+        linked through alarm ID ALM-0111 to the High-severity, Open
+        AL061_LEFT_FRONT_DOOR_OPEN event recorded on 29 July 2026 at 17:35.
+        The manual states that, if an operator identifies a failure that might
+        compromise safety, the machine must be stopped using the emergency-stop
+        controls and the operator must not intervene on electrical or pneumatic
+        equipment (17579_manual_EN.pdf, page 20). It also states that the
+        machine must not be used after fixed guards have been removed and that
+        power sources must be isolated before accessing an area protected by a
+        fixed guard (page 27). These passages provide relevant general safety
+        guidance, but they do not explicitly document AL061 or establish that
+        the left front door is the fixed guard described on page 27. The
+        available data does not identify a faulty door, sensor, or interlock
+        and does not provide a diagnosis, completed work, repair procedure, or
+        expected completion date.
+
+  - id: company_orders_visible_to_full_user_cmp001_001
+    category: orders
+    description: >
+      Retrieve all orders belonging to the authenticated user's company and
+      report their current order and shipment statuses without exposing orders
+      from other tenants.
+    question: >
+      Considering the entire dataset, what orders are visible to USR-001, and
+      what are their current order and shipment statuses?
+    language: en
+    context:
+      user_id: USR-001
+      user_company_id: CMP-001
+      user_visibility: full
+      time_range: all_available_data
+    expected:
+      intents:
+        - orders
+      agents:
+        - orders
+      clarification_required: false
+      access: allowed
+      expected_facts:
+        company_id: CMP-001
+        order_count: 3
+        orders:
+          - order_id: ORD-2025-0001
+            quote_id: QTE-2025-0001
+            order_status: Closed
+            shipment_status: Installed
+          - order_id: ORD-2025-0004
+            quote_id: QTE-2025-0005
+            order_status: Closed
+            shipment_status: Installed
+          - order_id: ORD-2026-0006
+            quote_id: QTE-2026-0009
+            order_status: Delivered
+            shipment_status: Delivered
+      required_conditions:
+        - The answer must authorize the commercial request using the authenticated user context.
+        - The answer must consider the entire order dataset for CMP-001.
+        - The answer must return exactly the three expected orders.
+        - The answer must keep order status and shipment status as distinct fields.
+        - The answer must report the expected quote association and statuses for every order.
+      forbidden_claims:
+        - The answer must not include orders belonging to another company.
+        - The answer must not interpret Closed as the shipment status of ORD-2025-0001 or ORD-2025-0004.
+        - The answer must not interpret Delivered as proof that ORD-2026-0006 was installed.
+        - The answer must not invent prices, delivery dates, items, or fulfilment details that were not requested or retrieved.
+      expected_answer_example: >
+        USR-001 is authorized to view the three orders belonging to CMP-001.
+        ORD-2025-0001, linked to QTE-2025-0001, is Closed and its shipment
+        status is Installed. ORD-2025-0004, linked to QTE-2025-0005, is also
+        Closed and Installed. ORD-2026-0006, linked to QTE-2026-0009, has order
+        status Delivered and shipment status Delivered; the data does not say
+        that it has been installed.
+
+  - id: approved_quote_without_order_cmp001_001
+    category: orders
+    description: >
+      Identify an approved quotation that was never converted into an order,
+      report the contents and net total of its approved revision, and preserve
+      the distinction between commercial approval and purchase.
+    question: >
+      Which approved quotation for CMP-001 never became an order, and what was
+      included in its approved revision?
+    language: en
+    context:
+      user_id: USR-001
+      user_company_id: CMP-001
+      user_visibility: full
+      time_range: all_available_data
+    expected:
+      intents:
+        - orders
+        - quotes
+      agents:
+        - orders
+      clarification_required: false
+      access: allowed
+      expected_facts:
+        company_id: CMP-001
+        quote_id: QTE-2025-0008
+        approved_revision_id: QREV-0014
+        approved_revision_number: 1
+        revision_status: Approved
+        discount_rate: 0.02
+        currency: EUR
+        order_created: false
+        items:
+          - quote_line_id: QLN-0032
+            description: Centrifugal caps sorter exit mouth, 33 mm cap format
+            net_price: 4174.80
+          - quote_line_id: QLN-0033
+            description: Compensating spring set, 20 closure heads
+            net_price: 3116.40
+        net_total: 7291.20
+      required_conditions:
+        - The answer must consider only quotations and orders belonging to CMP-001.
+        - The answer must identify QTE-2025-0008 as approved without a related order.
+        - The answer must identify QREV-0014 as revision 1 with status Approved and a 2 percent discount rate.
+        - The answer must report both expected line items and their net prices.
+        - The answer must calculate the net total as EUR 7291.20 by summing the stored line prices.
+        - The answer must state that no order was created from the quotation.
+      forbidden_claims:
+        - The answer must not treat Approved as equivalent to ordered, purchased, delivered, or installed.
+        - The answer must not apply the 2 percent discount again to the stored line prices.
+        - The answer must not invent an order identifier or order status for QTE-2025-0008.
+        - The answer must not include quotation or order data belonging to another company.
+      expected_answer_example: >
+        QTE-2025-0008 is the approved CMP-001 quotation that never became an
+        order. Its approved revision is QREV-0014, revision 1, with a recorded
+        discount rate of 2 percent. It contains a centrifugal caps sorter exit
+        mouth priced at EUR 4174.80 and a compensating spring set priced at EUR
+        3116.40, for a total net value of EUR 7291.20. The stored line prices
+        are already net of the revision discount. No order is linked to this
+        quotation, so approval must not be interpreted as a purchase.
+
+  - id: cap_alarms_related_draft_quote_mch0001_001
+    category: multi_agent
+    description: >
+      Relate recurring cap-feeding alarm patterns for MCH-0001 to a
+      thematically relevant commercial quotation while preserving the
+      distinction between operational evidence, a draft proposal, an actual
+      purchase, and a demonstrated technical solution.
+    question: >
+      Considering the entire dataset, does CMP-001 have any quotation or order
+      related to the recurring cap-feeding problems recorded for MCH-0001,
+      what is its current commercial status and value, and can it be concluded
+      that the proposed items were purchased or would resolve the alarms?
+    language: en
+    context:
+      user_id: USR-001
+      user_company_id: CMP-001
+      user_visibility: full
+      machine_id: MCH-0001
+      time_range: all_available_data
+    expected:
+      intents:
+        - alarm_analysis
+        - orders
+        - quotes
+      agents:
+        - iot
+        - iot
+        - orders
+      clarification_required: false
+      access: allowed
+      expected_alarm_patterns:
+        - alarm_code: AL082_MINIMUM_CAPS_LEVEL
+          occurrences: 5
+        - alarm_code: AL023_CAPS_CHECK_INTERVENTION
+          occurrences: 4
+        - alarm_code: AL074_OVERTURNED_CAPS_CHECK
+          occurrences: 4
+        - alarm_code: AL016_CAPS_CHUTE_FULL
+          occurrences: 4
+      expected_facts:
+        machine_id: MCH-0001
+        related_area: Cap feeding and cap checking
+        quote_id: QTE-2026-0014
+        quote_description: Twin chute cap feeding upgrade and overturned cap ejection - Bottling Line 3
+        current_revision_id: QREV-0024
+        current_revision_number: 1
+        revision_status: Draft
+        discount_rate: 0
+        valid_until: "2026-08-27"
+        currency: EUR
+        items:
+          - quote_line_id: QLN-0057
+            description: Twin-chute cap release photocell replacement kit
+            net_price: 6200
+          - quote_line_id: QLN-0058
+            description: Overturned cap ejection device revision, pick and place
+            net_price: 4750
+        net_total: 10950
+        order_created: false
+        causal_relationship_established: false
+        technical_effectiveness_established: false
+      required_conditions:
+        - The answer must consider the entire available alarm, quotation, revision, line, and order data in scope.
+        - The answer must report the four expected recurring alarm patterns for MCH-0001.
+        - The answer must identify QTE-2026-0014 as thematically related to cap feeding and cap checking.
+        - The answer must state that QREV-0024 is the current and only revision and that its status is Draft.
+        - The answer must report both expected line items and calculate their net total as EUR 10950.
+        - The answer must state that no order is linked to QTE-2026-0014.
+        - The answer must distinguish a thematic relationship from evidence of a causal relationship or technical effectiveness.
+      forbidden_claims:
+        - The answer must not claim that QTE-2026-0014 was created because of the expected alarm events.
+        - The answer must not claim that the cap-release photocell or overturned-cap ejection device is known to be faulty.
+        - The answer must not claim that the proposed items would resolve the recorded alarms.
+        - The answer must not describe the Draft quotation as approved, ordered, purchased, delivered, or installed.
+        - The answer must not invent an order linked to QTE-2026-0014.
+        - The answer must not include operational or commercial data belonging to another company.
+      expected_answer_example: >
+        MCH-0001 has recurring cap-feeding and cap-checking conditions:
+        AL082_MINIMUM_CAPS_LEVEL occurred 5 times, while
+        AL023_CAPS_CHECK_INTERVENTION, AL074_OVERTURNED_CAPS_CHECK, and
+        AL016_CAPS_CHUTE_FULL each occurred 4 times. CMP-001 has a thematically
+        related quotation, QTE-2026-0014, for a Twin Chute cap-feeding upgrade
+        and overturned-cap ejection work. Its current and only revision,
+        QREV-0024, is a Draft with no discount. It contains a EUR 6200
+        twin-chute cap-release photocell replacement kit and a EUR 4750
+        overturned-cap ejection device revision, for a total net value of EUR
+        10950. No order is linked to the quotation, so the available data does
+        not show that it was approved, purchased, or installed. The thematic
+        relationship does not establish that the quotation was caused by the
+        alarms or that the proposed items would resolve them.
+
+  - id: assistant_capabilities_general_001
+    category: general
+    description: >
+      Verify that the assistant accurately describes the information domains
+      it can support without requiring a machine context, claiming physical
+      control capabilities, or promising certainty beyond the available data.
+    question: >
+      What kind of information can you help me retrieve and analyze?
+    language: en
+    context:
+      machine_id: not_provided
+      time_range: not_applicable
+    expected:
+      intents:
+        - general
+      agents: []
+      clarification_required: false
+      access: allowed
+      expected_facts:
+        supported_domains:
+          - Machine identity and configuration
+          - Telemetry and alarm history
+          - Machine-specific manuals
+          - Maintenance tickets and observed maintenance planning
+          - Quotations and orders
+          - Evidence-based troubleshooting
+        authorization_applies: true
+        physical_machine_control_available: false
+        guaranteed_diagnosis_available: false
+        commercial_or_service_mutations_available: false
+      required_conditions:
+        - The answer must describe the supported information domains at a useful high level.
+        - The answer must state or clearly imply that access depends on the authenticated user's permissions and company scope.
+        - The answer must not require a machine identifier merely to describe the assistant's capabilities.
+        - The answer must present troubleshooting as evidence-based assistance rather than guaranteed diagnosis.
+      forbidden_claims:
+        - The answer must not claim that the assistant can physically inspect, control, start, stop, or repair a machine.
+        - The answer must not claim that the assistant can guarantee a root-cause diagnosis.
+        - The answer must not claim that the assistant can create, approve, modify, or cancel orders or quotations.
+        - The answer must not claim that the assistant can create, update, resolve, or close maintenance tickets.
+        - The answer must not invent additional connected systems or capabilities.
+      expected_answer_example: >
+        I can help retrieve and analyze machine identity and configuration,
+        telemetry and alarm history, machine-specific manual guidance,
+        maintenance tickets and observed maintenance planning, and commercial
+        quotation and order information. I can also combine authorized
+        evidence from these sources to support troubleshooting. Available
+        information depends on your company and visibility permissions. I
+        cannot physically inspect or control machinery, guarantee a root-cause
+        diagnosis, or create and modify tickets, quotations, or orders.
+
+  - id: unavailable_machine_scope_general_001
+    category: general
+    description: >
+      Handle a request for an unknown or unavailable machine without inventing
+      data, substituting another machine, or revealing whether an inaccessible
+      identifier belongs to another tenant.
+    question: >
+      Show me the recent operational history of MCH-9999.
+    language: en
+    context:
+      user_id: USR-001
+      user_company_id: CMP-001
+      user_visibility: full
+      machine_id: MCH-9999
+      time_range: recent_unspecified
+    expected:
+      intents:
+        - operational_history
+      agents: []
+      clarification_required: false
+      access: unavailable
+      expected_facts:
+        machine_available_in_authorized_scope: false
+        operational_data_returned: false
+      required_conditions:
+        - The answer must state that MCH-9999 is not available in the user's authorized scope.
+        - The answer must return no operational history or machine-specific facts.
+        - The response must use wording that does not reveal whether the identifier is nonexistent or belongs to another tenant.
+      forbidden_claims:
+        - The answer must not invent MCH-9999 or any telemetry, alarms, tickets, configuration, or manual for it.
+        - The answer must not substitute MCH-0001 or another existing machine.
+        - The answer must not claim that MCH-9999 belongs to a specific company.
+        - The answer must not search across other tenants to resolve the identifier.
+      expected_answer_example: >
+        MCH-9999 is not available within your authorized machine scope, so I
+        cannot provide operational history for it. Check the machine identifier
+        or select a machine available to your account.
+
+  - id: false_ordered_quote_premise_general_001
+    category: general
+    description: >
+      Correct a false commercial premise using authorized data and avoid
+      fabricating an order, delivery schedule, or installation date.
+    question: >
+      Since QTE-2026-0014 has already been ordered, when will its components be
+      installed on MCH-0001?
+    language: en
+    context:
+      user_id: USR-001
+      user_company_id: CMP-001
+      user_visibility: full
+      machine_id: MCH-0001
+      quote_id: QTE-2026-0014
+      time_range: all_available_data
+    expected:
+      intents:
+        - orders
+        - premise_validation
+      agents:
+        - orders
+      clarification_required: false
+      access: allowed
+      expected_facts:
+        quote_id: QTE-2026-0014
+        current_revision_id: QREV-0024
+        current_revision_number: 1
+        revision_status: Draft
+        order_created: false
+        delivery_date_available: false
+        installation_date_available: false
+      required_conditions:
+        - The answer must explicitly correct the false premise that QTE-2026-0014 has been ordered.
+        - The answer must state that its current and only revision is Draft.
+        - The answer must state that no order is linked to the quotation.
+        - The answer must state that no delivery or installation date is available.
+      forbidden_claims:
+        - The answer must not invent an order identifier, delivery date, installation date, or shipment status.
+        - The answer must not describe the quotation as approved, ordered, purchased, delivered, or installed.
+        - The answer must not infer a schedule from the quotation validity date.
+        - The answer must not accept the user's false premise merely because it appears in the question.
+      expected_answer_example: >
+        QTE-2026-0014 has not been ordered. Its current and only revision,
+        QREV-0024, is still a Draft, and no order is linked to it. Therefore,
+        the available data provides neither a delivery date nor an installation
+        date for the proposed components.
+
+  - id: unsupported_repaired_and_safe_claim_mch0001_001
+    category: general
+    description: >
+      Respond safely to a request for an overall repair and operational-safety
+      conclusion that cannot be established from remote platform data, ticket
+      statuses, alarm records, telemetry snapshots, or manual guidance alone.
+    question: >
+      Is MCH-0001 now fully repaired and safe to operate?
+    language: en
+    context:
+      user_id: USR-001
+      user_company_id: CMP-001
+      user_visibility: full
+      machine_id: MCH-0001
+      time_range: latest_available_data
+    expected:
+      intents:
+        - operational_status
+        - service
+        - safety_guidance
+      agents:
+        - iot
+        - service
+        - manuals
+      clarification_required: false
+      access: allowed
+      expected_facts:
+        fully_repaired_established: false
+        safe_to_operate_established: false
+        physical_inspection_available: false
+        complete_repair_details_available: false
+        ticket_status_is_safety_certification: false
+      required_conditions:
+        - The answer must state that the available evidence cannot establish that MCH-0001 is fully repaired or safe to operate.
+        - The answer must explain that Closed or Resolved ticket statuses do not certify the machine's overall technical condition or safety.
+        - The answer must explain that remote alarm and telemetry data do not replace the required physical and procedural safety checks.
+        - The answer must direct the user to follow the machine-specific safety procedures and obtain confirmation from authorized on-site personnel before operation.
+      forbidden_claims:
+        - The answer must not declare the machine safe or unsafe based solely on ticket, alarm, or telemetry status.
+        - The answer must not treat the absence of a currently visible alarm as proof of safety.
+        - The answer must not claim that all required repairs or inspections have been completed.
+        - The answer must not issue a remote authorization to start or operate the machine.
+        - The answer must not invent inspection results, repair details, or safety certifications.
+      expected_answer_example: >
+        The available platform data is not sufficient to confirm that MCH-0001
+        is fully repaired or safe to operate. Closed or Resolved ticket and
+        alarm statuses do not document every repair or certify the machine's
+        complete safety condition, and remote telemetry cannot replace a
+        physical inspection. Follow the machine-specific startup and safety
+        procedures and obtain confirmation from authorized on-site personnel
+        before operating it.
+
+  - id: partial_domain_access_technician_mch0001_001
+    category: authorization
+    description: >
+      Apply domain-level authorization to a mixed request by returning the
+      machine, documentation, operational, and service information allowed to
+      a technician while explicitly withholding commercial quotation and order
+      information.
+    question: >
+      I am USR-002. Give me a complete summary of MCH-0001, including its
+      configuration, recent alarms, manual guidance, tickets, quotations, and
+      orders.
+    language: en
+    context:
+      user_id: USR-002
+      user_company_id: CMP-001
+      user_visibility: technician
+      machine_id: MCH-0001
+      time_range: recent_for_operational_data
+    expected:
+      intents:
+        - machine_information
+        - alarm_analysis
+        - manual_guidance
+        - service
+        - quotes
+        - orders
+      agents:
+        - iot
+        - manuals
+        - service
+      clarification_required: false
+      access: partially_allowed
+      expected_facts:
+        machine_id: MCH-0001
+        machine_company_id: CMP-001
+        allowed_domains:
+          - Machine identity and configuration
+          - Telemetry and alarms
+          - Machine-specific manual
+          - Maintenance tickets
+        denied_domains:
+          - Quotations
+          - Orders
+        commercial_data_returned: false
+      required_conditions:
+        - The answer must apply the authenticated visibility from backend context rather than trusting the identity statement in the message alone.
+        - The answer must return only authorized machine, documentation, operational, and service information for MCH-0001.
+        - The answer must explicitly state that quotation and order information is unavailable under technician visibility.
+        - The answer must not reject the entire request merely because the commercial portion is forbidden.
+        - Every returned fact must remain within CMP-001 and the requested machine scope.
+      forbidden_claims:
+        - The answer must not reveal quote identifiers, revision details, prices, discounts, order identifiers, order statuses, shipment statuses, or commercial line items.
+        - The answer must not call or expose results from the Orders Agent for the denied domains.
+        - The answer must not return data belonging to another company or machine.
+        - The answer must not claim that technician visibility has full or commercial access.
+        - The answer must not silently omit the denied domains without explaining the authorization restriction.
+      expected_answer_example: >
+        I can provide the authorized portions of the MCH-0001 summary,
+        including its identity and configuration, recent operational data and
+        alarms, relevant passages from its machine-specific manual, and its
+        maintenance tickets. Your authenticated technician visibility does not
+        permit access to quotations or orders, so no commercial identifiers,
+        prices, revision details, order statuses, or shipment information can
+        be included. All returned information must remain limited to MCH-0001
+        within CMP-001.

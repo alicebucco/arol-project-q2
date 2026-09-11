@@ -1,0 +1,1450 @@
+{
+  "generated_at": "2026-09-09T08:47:33.014128+00:00",
+  "provider": {
+    "base_url": "https://api.inceptionlabs.ai/v1",
+    "model": "mercury-2"
+  },
+  "case_count": 20,
+  "repetitions": 1,
+  "metrics": {
+    "attempts": 20,
+    "completed": 20,
+    "execution_errors": 0,
+    "automatic_check_failures": 12,
+    "automatic_check_pass_rate": 0.4,
+    "mean_latency_ms": 3409.5
+  },
+  "problem_cases": [
+    "resolved_ticket_alarms_mch0001_001",
+    "undocumented_alarm_guidance_mch0001_001",
+    "observed_hours_maintenance_mch0003_001",
+    "low_air_pressure_manual_guidance_mch0001_001",
+    "recurring_cap_alarms_troubleshoot_mch0001_001",
+    "recurring_bottle_handling_troubleshoot_mch0006_001",
+    "recurring_motor_overloads_troubleshoot_mch0007_001",
+    "active_maintenance_tickets_mch0003_001",
+    "active_door_alarm_ticket_manual_guidance_mch0003_001",
+    "approved_quote_without_order_cmp001_001",
+    "cap_alarms_related_draft_quote_mch0001_001",
+    "unsupported_repaired_and_safe_claim_mch0001_001"
+  ],
+  "cases": [
+    {
+      "id": "resolved_ticket_alarms_mch0001_001",
+      "run": 1,
+      "category": "multi_agent",
+      "question": "Considering the entire dataset, which alarms recorded for MCH-0001 led to the creation of a ticket that was resolved?\n",
+      "status": "completed",
+      "latency_ms": 10641.5,
+      "expected_agents": [
+        "iot",
+        "service"
+      ],
+      "actual_agents": [
+        "service"
+      ],
+      "missing_agents": [
+        "iot"
+      ],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "The resolved tickets for machine\u202fMCH\u20110001 that reference a specific alarm are:\n\n1. Alarm\u202fALM\u20110045 \u2013 ticket\u202fTCK\u20110054 (Remote troubleshooting, Critical, created\u202f2026\u201107\u201131)  \n2. Alarm\u202fALM\u20110046 \u2013 ticket\u202fTCK\u20110048 (Remote troubleshooting, Critical, created\u202f2026\u201107\u201130)  \n3. Alarm\u202fALM\u20110034 \u2013 ticket\u202fTCK\u20110038 (On\u2011site service, High, created\u202f2026\u201107\u201124)  \n4. Alarm\u202fALM\u20110022 \u2013 ticket\u202fTCK\u20110026 (On\u2011site service, Medium, created\u202f2026\u201107\u201118)  \n\nThese are the only alarms in the provided data that are linked to tickets whose status is \u201cResolved.\u201d No other alarm\u2011ticket associations are present in the evidence.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "service.maintenance_tickets"
+        ],
+        "executed_operations": [
+          "service.maintenance_tickets"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: iot."
+        ]
+      },
+      "review": {
+        "expected_facts": null,
+        "required_conditions": [
+          "The answer must consider the entire dataset.",
+          "The answer must consider only alarms belonging to MCH-0001.",
+          "Every returned alarm must be linked to a ticket whose status is Resolved.",
+          "The answer must return exactly the four expected alarm codes.",
+          "The answer must report one resolved ticket for each expected alarm code."
+        ],
+        "forbidden_claims": [
+          "The answer must not include alarms linked only to open or unresolved tickets.",
+          "The answer must not include data belonging to other machines.",
+          "The answer must not confuse the number of resolved tickets with the total number of alarm events."
+        ]
+      }
+    },
+    {
+      "id": "alarm_occurrence_count_mch0001_001",
+      "run": 1,
+      "category": "alarm_analysis",
+      "question": "Considering the entire dataset, how many times was the AL082_MINIMUM_CAPS_LEVEL alarm recorded for MCH-0001?\n",
+      "status": "completed",
+      "latency_ms": 1479.5,
+      "expected_agents": [
+        "iot"
+      ],
+      "actual_agents": [
+        "iot"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "The AL082_MINIMUM_CAPS_LEVEL alarm was recorded 5 times for machine MCH\u20110001.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "iot.count_alarms"
+        ],
+        "executed_operations": [
+          "iot.count_alarms"
+        ]
+      },
+      "automatic_checks": {
+        "status": "passed",
+        "problems": []
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0001",
+          "alarm_code": "AL082_MINIMUM_CAPS_LEVEL",
+          "occurrences": 5
+        },
+        "required_conditions": [
+          "The answer must consider the entire dataset.",
+          "The answer must count only events belonging to MCH-0001.",
+          "The answer must state that AL082_MINIMUM_CAPS_LEVEL was recorded 5 times."
+        ],
+        "forbidden_claims": [
+          "The answer must not count alarms belonging to other machines.",
+          "The answer must not interpret 5 as the number of tickets.",
+          "The answer must not add causes or procedures that were not requested."
+        ]
+      }
+    },
+    {
+      "id": "undocumented_alarm_guidance_mch0001_001",
+      "run": 1,
+      "category": "alarm_guidance",
+      "question": "Can you explain what the AL083_FALLEN_BOTTLE_ALARM error code means for machine MCH-0001?\n",
+      "status": "completed",
+      "latency_ms": 1858.5,
+      "expected_agents": [
+        "iot",
+        "manuals"
+      ],
+      "actual_agents": [
+        "iot"
+      ],
+      "missing_agents": [
+        "manuals"
+      ],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "The AL083_FALLEN_BOTTLE_ALARM code indicates a fallen bottle alarm. For machine MCH\u20110001 this means the system has detected that a bottle has fallen or is out of its expected position. The alarm signals that the machine may need to be inspected or cleared of the fallen bottle before normal operation can continue. No additional evidence is available to determine the cause or any required corrective actions.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "iot.alarm_meaning"
+        ],
+        "executed_operations": [
+          "iot.alarm_meaning"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: manuals."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0001",
+          "alarm_code": "AL083_FALLEN_BOTTLE_ALARM",
+          "readable_meaning": "Fallen bottle alarm",
+          "exact_manual_documentation_found": false
+        },
+        "required_conditions": [
+          "The answer must explain that the readable code name refers to a fallen bottle alarm.",
+          "The answer must clarify that this meaning is inferred from the code name.",
+          "The answer must state that AL083 was not found explicitly in the available manual.",
+          "The answer must state that specific causes or procedures cannot be confirmed."
+        ],
+        "forbidden_claims": [
+          "The answer must not claim that AL083 is explicitly documented in the manual.",
+          "The answer must not invent the cause of the fallen bottle.",
+          "The answer must not invent checks or recovery procedures.",
+          "The answer must not present semantically similar passages as confirmed documentation for AL083."
+        ]
+      }
+    },
+    {
+      "id": "maintenance_man_qualities_mch0001_001",
+      "run": 1,
+      "category": "manuals",
+      "question": "What qualities should a Maintenance Man have?\n",
+      "status": "completed",
+      "latency_ms": 1841.8,
+      "expected_agents": [
+        "manuals"
+      ],
+      "actual_agents": [
+        "manuals"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 24
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 94
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 23
+        }
+      ],
+      "missing_expected_sources": [],
+      "answer": "I found authorised manual evidence, but could not generate a validated summary. Please review the sources below.",
+      "trace": {
+        "planner_action": "answer_without_evidence",
+        "planned_operations": [
+          "manuals.search"
+        ],
+        "executed_operations": [
+          "manuals.search"
+        ]
+      },
+      "automatic_checks": {
+        "status": "passed",
+        "problems": []
+      },
+      "review": {
+        "expected_facts": [
+          "A Maintenance Man must have good technical preparation.",
+          "A Maintenance Man must have suitable working experience in the relevant field.",
+          "A Maintenance Man must have specific mechanical and electrical technical knowledge.",
+          "The required knowledge must be suitable for the operations described in the manual."
+        ],
+        "required_conditions": [
+          "The answer must be based on the manual associated with MCH-0001.",
+          "The answer must include a citation to page 24 of 15610_manual_EN.pdf.",
+          "The answer must preserve the meaning of the documented requirements without adding unsupported qualifications."
+        ],
+        "forbidden_claims": [
+          "The answer must not invent certifications, degrees, licences, or training requirements not stated in the source passage.",
+          "The answer must not use operational, alarm, service, or commercial data.",
+          "The answer must not cite a different manual as the supporting source."
+        ]
+      }
+    },
+    {
+      "id": "observed_hours_maintenance_mch0003_001",
+      "run": 1,
+      "category": "multi_agent",
+      "question": "Based on the productive hours observed for MCH-0003, which documented maintenance thresholds have been reached, and which activities does the manual associate with them?\n",
+      "status": "completed",
+      "latency_ms": 2777.1,
+      "expected_agents": [
+        "iot",
+        "service",
+        "manuals"
+      ],
+      "actual_agents": [
+        "iot",
+        "manuals"
+      ],
+      "missing_agents": [
+        "service"
+      ],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 97
+        }
+      ],
+      "answer": "Machine MCH\u20110003 has recorded 321.53 productive hours between 6\u202fJuly\u202f2026 and 4\u202fAugust\u202f2026.\n\nThe observed total exceeds the following documented working\u2011hour intervals:\n\n1.\u202fEvery\u202f40\u202fworking\u202fhours \u2013 the manual prescribes a pneumatic system check.  \n   Activities: verify air\u2011supply pressure at all utilization points, confirm pressure\u2011reducer settings on gauges, drain condensate from under the discharge filter, inspect filter clogging and replace the filter if required.\n\n2.\u202fEvery\u202f120\u202fworking\u202fhours \u2013 the manual prescribes a heads\u2011rollers check.  \n   Activities: ensure free rotation of skirting and threading rollers, inspect the closure\u2011head roller springs and overall spring efficiency, and replace springs if necessary.\n\nThe observed 321\u202fhours also surpasses these",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "iot.observed_productive_hours",
+          "manuals.maintenance_requirements"
+        ],
+        "executed_operations": [
+          "iot.observed_productive_hours",
+          "manuals.maintenance_requirements"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: service.",
+          "Missing expected manual citations."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0003",
+          "observed_productive_hours": 321.53,
+          "periodic_interval_hours": 40,
+          "latest_reached_periodic_interval_hours": 320,
+          "next_documented_threshold_hours": 500,
+          "documented_activities": [
+            "Check the operation of the safety devices.",
+            "Check the pneumatic system."
+          ],
+          "maintenance_completion_history_available": false
+        },
+        "required_conditions": [
+          "The answer must describe 321.53 hours as productive hours observed in the available telemetry window.",
+          "The answer must state that the 40-hour maintenance interval has been reached repeatedly.",
+          "The answer must identify 320 hours as the latest reached 40-hour interval.",
+          "The answer must identify 500 hours as the next documented threshold.",
+          "The answer must mention checking the operation of the safety devices.",
+          "The answer must mention checking the pneumatic system.",
+          "The answer must cite page 97 of 17579_manual_EN.pdf for the documented 40-hour activities.",
+          "The answer must clarify that the available data does not show whether these maintenance activities have already been completed."
+        ],
+        "forbidden_claims": [
+          "The answer must not describe 321.53 hours as the machine's lifetime operating hours.",
+          "The answer must not claim with certainty that maintenance is overdue.",
+          "The answer must not claim that the 500-hour threshold has been reached.",
+          "The answer must not invent additional maintenance activities.",
+          "The answer must not claim that the maintenance completion history is available."
+        ]
+      }
+    },
+    {
+      "id": "low_air_pressure_manual_guidance_mch0001_001",
+      "run": 1,
+      "category": "multi_agent",
+      "question": "Considering the entire dataset, how many times was AL017_LOW_AIR_PRESSURE recorded for MCH-0001, what pressure requirements or checks are documented in its manual, and can the available evidence establish why the alarms occurred?\n",
+      "status": "completed",
+      "latency_ms": 2966.8,
+      "expected_agents": [
+        "iot",
+        "iot",
+        "manuals"
+      ],
+      "actual_agents": [
+        "iot",
+        "manuals"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 21
+        }
+      ],
+      "missing_expected_sources": [
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 47
+        }
+      ],
+      "answer": "The alarm code AL017_LOW_AIR_PRESSURE was recorded 4 times for machine MCH\u20110001.\n\nNo manual documentation about pressure requirements or checks for this alarm is present in the supplied evidence.\n\nThe available evidence only indicates that the alarm means \u201cLow air pressure.\u201d It does not provide information on the underlying cause of the low\u2011pressure condition, so a causal conclusion cannot be established from the current data.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "iot.count_alarms",
+          "manuals.search",
+          "iot.alarm_meaning"
+        ],
+        "executed_operations": [
+          "iot.count_alarms",
+          "manuals.search",
+          "iot.alarm_meaning"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected manual citations."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0001",
+          "alarm_code": "AL017_LOW_AIR_PRESSURE",
+          "occurrences": 4,
+          "sterile_air_minimum_pressure_bar": 5,
+          "sterile_air_maximum_pressure_bar": 8,
+          "startup_check": "Check that the working pressure is correct using the pressure gauges.",
+          "pressure_measurements_at_alarm_time_available": false,
+          "exact_alarm_cause_established": false
+        },
+        "required_conditions": [
+          "The answer must consider the entire dataset and count only events belonging to MCH-0001.",
+          "The answer must state that AL017_LOW_AIR_PRESSURE was recorded 4 times.",
+          "The answer must identify 5 to 8 bar as the range documented specifically for sterile air.",
+          "The answer must cite page 21 of 15610_manual_EN.pdf for the sterile-air pressure range.",
+          "The answer must state that the manual requires checking the working pressure on the pressure gauges before starting the machine.",
+          "The answer must cite page 47 of 15610_manual_EN.pdf for the pre-start pressure check.",
+          "The answer must clarify that no pressure measurements at the times of the alarms are available.",
+          "The answer must distinguish relevant manual guidance from a confirmed explanation of the alarm events."
+        ],
+        "forbidden_claims": [
+          "The answer must not claim that the pressure was below 5 bar when an alarm occurred.",
+          "The answer must not claim that AL017 is explicitly tied to the documented sterile-air pressure range.",
+          "The answer must not describe 5 to 8 bar as a confirmed threshold for triggering AL017.",
+          "The answer must not claim that the manual establishes the exact cause of the recorded alarms.",
+          "The answer must not invent pressure readings, faulty components, causes, or recovery procedures.",
+          "The answer must not use alarm events or manual content belonging to another machine."
+        ]
+      }
+    },
+    {
+      "id": "recurring_cap_alarms_troubleshoot_mch0001_001",
+      "run": 1,
+      "category": "diagnostics",
+      "question": "Considering the entire dataset, what recurring problems are visible in the alarm history of MCH-0001, which instructions in its manual are relevant to the most common affected area, and what can be concluded about the root cause?\n",
+      "status": "completed",
+      "latency_ms": 5053.3,
+      "expected_agents": [
+        "iot",
+        "manuals"
+      ],
+      "actual_agents": [
+        "iot",
+        "manuals"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 150
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 99
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 99
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 153
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 101
+        }
+      ],
+      "missing_expected_sources": [
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 18
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 46
+        }
+      ],
+      "answer": "Recurring problems in the alarm history of machine MCH\u20110001  \n\n1. AL082_MINIMUM_CAPS_LEVEL \u2013 5 occurrences (first seen 2026\u201107\u201106, last seen 2026\u201107\u201130, resolved)  \n2. AL074_OVERTURNED_CAPS_CHECK \u2013 4 occurrences (first seen 2026\u201107\u201107, last seen 2026\u201108\u201103, acknowledged)  \n3. AL016_CAPS_CHUTE_FULL \u2013 4 occurrences (first seen 2026\u201107\u201114, last seen 2026\u201108\u201103, resolved)  \n4. AL023_CAPS_CHECK_INTERVENTION \u2013 4 occurrences (first seen 2026\u201107\u201106, last seen 2026\u201108\u201103, resolved)  \n5. AL086_LINE_EMERGENCY_PRESSED \u2013 4 occurrences (first seen 2026\u201107\u201117, last seen 2026\u201107\u201129, resolved)  \n6. AL017_LOW_AIR_PRESSURE \u2013 4 occurrences (first seen 2026\u201107\u201113, last seen 2026\u201107\u201129, resolved)  \n7. AL024_FRONT_PANEL_EMERGENCY_PRESSED \u2013 3 occurrences (first seen 2026\u201107\u201108, last seen 2026\u201107\u201129, resolved)  \n8. AL053",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "iot.repeated_alarm_patterns",
+          "manuals.search"
+        ],
+        "executed_operations": [
+          "iot.repeated_alarm_patterns",
+          "manuals.search"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected manual citations."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0001",
+          "most_common_affected_area": "Cap feeding and cap checking",
+          "confirmed_root_cause_available": false,
+          "relevant_manual_guidance": [
+            "Keep both cap chutes full.",
+            "Keep the cap sorter full.",
+            "Give operating priority to the primary cap chute.",
+            "If caps are missing from the chute or the first transfer-disk release check reports an error, the system uses the secondary cap chute.",
+            "If the problem is in the cap chute or on the transfer disk, production may continue temporarily with the secondary chute while the bottle flow is stopped to restore the priority chute."
+          ]
+        },
+        "required_conditions": [
+          "The answer must consider the entire available alarm dataset for MCH-0001.",
+          "The answer must identify AL082_MINIMUM_CAPS_LEVEL as the most frequent alarm with 5 occurrences.",
+          "The answer must report 4 occurrences each for AL023_CAPS_CHECK_INTERVENTION, AL074_OVERTURNED_CAPS_CHECK, and AL016_CAPS_CHUTE_FULL.",
+          "The answer must identify cap feeding and cap checking as the area shared by the most frequent recurring conditions.",
+          "The answer must cite pages 18 and 46 of 15610_manual_EN.pdf for the relevant Twin Hopper guidance.",
+          "The answer must distinguish observed alarm patterns from the manual's general operating guidance.",
+          "The answer must state that the available evidence does not establish a confirmed root cause."
+        ],
+        "forbidden_claims": [
+          "The answer must not claim that any of the expected alarm codes is explicitly documented on pages 18 or 46.",
+          "The answer must not claim that a lack of caps is the confirmed root cause of all the recurring alarms.",
+          "The answer must not claim that the primary cap chute, secondary cap chute, cap sorter, photocell, or transfer disk is known to be faulty.",
+          "The answer must not present a semantically related manual passage as an exact alarm-code procedure.",
+          "The answer must not invent inspections, adjustments, replaced components, or completed repairs.",
+          "The answer must not include alarms or manual content belonging to another machine."
+        ]
+      }
+    },
+    {
+      "id": "recurring_bottle_handling_troubleshoot_mch0006_001",
+      "run": 1,
+      "category": "diagnostics",
+      "question": "Considering the entire dataset, what recurring bottle-handling problems are visible for MCH-0006, which checks or adjustments documented in its manual are relevant, and what can be concluded about the root cause?\n",
+      "status": "completed",
+      "latency_ms": 3405.0,
+      "expected_agents": [
+        "iot",
+        "manuals"
+      ],
+      "actual_agents": [
+        "iot",
+        "manuals"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [
+        {
+          "file": "A2064_manual_EN.pdf",
+          "page": 46
+        },
+        {
+          "file": "A2064_manual_EN.pdf",
+          "page": 111
+        },
+        {
+          "file": "A2064_manual_EN.pdf",
+          "page": 68
+        },
+        {
+          "file": "A2064_manual_EN.pdf",
+          "page": 69
+        },
+        {
+          "file": "A2064_manual_EN.pdf",
+          "page": 112
+        }
+      ],
+      "missing_expected_sources": [
+        {
+          "file": "A2064_manual_EN.pdf",
+          "page": 39
+        }
+      ],
+      "answer": "The IoT telemetry for machine\u202fMCH\u20110006 shows several alarm types that have repeated over the past month.\n\n1.\u202fAL057_BOTTLE_TOO_HIGH \u2013 7 occurrences (first seen\u202f2026\u201107\u201110, last seen\u202f2026\u201108\u201103, resolved)  \n2.\u202fAL016_CAPS_CHUTE_FULL \u2013 3 occurrences (first seen\u202f2026\u201107\u201109, last seen\u202f2026\u201107\u201123, resolved)  \n3.\u202fAL051_ENTRANCE_FEED_SCREW_SENSOR \u2013 3 occurrences (first seen\u202f2026\u201107\u201113, last seen\u202f2026\u201107\u201122, resolved)  \n4.\u202fAL031_HEADS_MOTOR_OVERLOAD \u2013 2 occurrences (first seen\u202f2026\u201107\u201110, last seen\u202f2026\u201108\u201104, **open**)  \n5.\u202fAL052_INFEED_STARWHEEL_SENSOR \u2013 2 occurrences (first seen\u202f2026\u201107\u201124, last seen\u202f2026\u201107\u201131, resolved)  \n6.\u202fAL019_CAPS_SORTER_UPPER_DOOR_OPEN \u2013 2 occurrences (first seen\u202f2026\u201107\u201113, last seen\u202f2026\u201107\u201130, resolved)  \n7.\u202fAL034_CAPS_STORAGE_TANK_OVERLOAD \u2013 2 occurrences (first seen\u202f2026\u201107\u201117, last seen\u202f2026\u201107\u201128, resolved)  \n",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "iot.repeated_alarm_patterns",
+          "manuals.search"
+        ],
+        "executed_operations": [
+          "iot.repeated_alarm_patterns",
+          "manuals.search"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected manual citations."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0006",
+          "most_common_alarm_code": "AL057_BOTTLE_TOO_HIGH",
+          "most_common_affected_area": "Bottle handling, transfer, and height",
+          "confirmed_root_cause_available": false,
+          "relevant_manual_guidance": [
+            "Verify that the installed equipment is suitable for the container size being processed.",
+            "Verify the correspondence between the container and cap.",
+            "Check the height of the closure unit according to the container height.",
+            "Check equipment alignment with a complete slow-speed cycle in jog mode after feeding a few containers.",
+            "Check starwheel timing, suitable transfer equipment, and correct head height when investigating the related documented container-handling faults."
+          ]
+        },
+        "required_conditions": [
+          "The answer must consider the entire available alarm dataset for MCH-0006.",
+          "The answer must identify AL057_BOTTLE_TOO_HIGH as the most frequent alarm with 7 occurrences.",
+          "The answer must report 3 occurrences of AL051_ENTRANCE_FEED_SCREW_SENSOR and 2 occurrences of AL052_INFEED_STARWHEEL_SENSOR.",
+          "The answer must report 1 occurrence each of AL053_OUTFEED_STARWHEEL_SENSOR and AL054_TRANSFER_STARWHEEL_SENSOR.",
+          "The answer must identify bottle handling, transfer, and height as the area shared by the selected alarm patterns.",
+          "The answer must cite pages 39 and 111 of A2064_manual_EN.pdf for the relevant checks and troubleshooting guidance.",
+          "The answer must distinguish observed alarm patterns from the manual's general and symptom-based guidance.",
+          "The answer must state that the available evidence does not establish a confirmed root cause."
+        ],
+        "forbidden_claims": [
+          "The answer must not claim that any expected alarm code is explicitly documented on pages 39 or 111.",
+          "The answer must not claim that the closure head is known to be incorrectly adjusted.",
+          "The answer must not claim that a starwheel is known to be incorrectly timed.",
+          "The answer must not claim that the installed transfer equipment is known to be unsuitable.",
+          "The answer must not present a semantically related manual passage as an exact alarm-code procedure.",
+          "The answer must not invent inspections, adjustments, replaced components, or completed repairs.",
+          "The answer must not include alarms or manual content belonging to another machine."
+        ]
+      }
+    },
+    {
+      "id": "recurring_motor_overloads_troubleshoot_mch0007_001",
+      "run": 1,
+      "category": "diagnostics",
+      "question": "Considering the entire dataset, which recurring motor-overload conditions are visible for MCH-0007, which checks documented in its manual are relevant to the affected components, and can the underlying cause be identified?\n",
+      "status": "completed",
+      "latency_ms": 5431.8,
+      "expected_agents": [
+        "iot",
+        "manuals"
+      ],
+      "actual_agents": [
+        "iot",
+        "manuals"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [
+        {
+          "file": "A2055_manual_EN.pdf",
+          "page": 38
+        },
+        {
+          "file": "A2055_manual_EN.pdf",
+          "page": 42
+        },
+        {
+          "file": "A2055_manual_EN.pdf",
+          "page": 46
+        }
+      ],
+      "missing_expected_sources": [
+        {
+          "file": "A2055_manual_EN.pdf",
+          "page": 44
+        },
+        {
+          "file": "A2055_manual_EN.pdf",
+          "page": 88
+        }
+      ],
+      "answer": "The IoT telemetry for machine\u202fMCH\u20110007 shows two recurring motor\u2011overload alarms:\n\n1. **AL031_HEADS_MOTOR_OVERLOAD** \u2013 6 occurrences, first seen 2026\u201107\u201121\u202f21:47, last seen 2026\u201108\u201104\u202f20:58, latest status Open.  \n2. **AL032_CAPS_SORTER_MOTOR_OVERLOAD** \u2013 6 occurrences, first seen",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "iot.repeated_alarm_patterns",
+          "manuals.search"
+        ],
+        "executed_operations": [
+          "iot.repeated_alarm_patterns",
+          "manuals.search"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected manual citations."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0007",
+          "affected_components": [
+            "Head motor",
+            "Cap-sorter motor"
+          ],
+          "confirmed_root_cause_available": false,
+          "relevant_manual_guidance": [
+            "Check the motor absorption and rotation direction before startup.",
+            "Clean the closure heads and verify that the threading and seaming rollers rotate freely.",
+            "Check for abnormal noise or vibration in motors, reducers, gears, and bearings.",
+            "Check that the cap orientator internal disc rotates in the correct direction."
+          ]
+        },
+        "required_conditions": [
+          "The answer must consider the entire available alarm dataset for MCH-0007.",
+          "The answer must report 6 occurrences of AL031_HEADS_MOTOR_OVERLOAD.",
+          "The answer must report 6 occurrences of AL032_CAPS_SORTER_MOTOR_OVERLOAD.",
+          "The answer must keep the head-motor overload and cap-sorter-motor overload as distinct recorded conditions.",
+          "The answer must cite pages 38, 44, 46, and 88 of A2055_manual_EN.pdf for the relevant checks.",
+          "The answer must distinguish documented inspection areas from confirmed causes of the alarms.",
+          "The answer must state that the available evidence does not identify the underlying cause of either overload condition."
+        ],
+        "forbidden_claims": [
+          "The answer must not claim that AL031 or AL032 is explicitly documented on the cited manual pages.",
+          "The answer must not claim that both overload conditions have the same cause.",
+          "The answer must not claim that the motor rotation direction is known to be incorrect.",
+          "The answer must not claim that the closure-head rollers are known to be blocked.",
+          "The answer must not claim that abnormal noise, vibration, friction, wear, or an electrical fault was observed.",
+          "The answer must not present a semantically related manual passage as an exact alarm-code procedure.",
+          "The answer must not invent inspections, adjustments, replaced components, or completed repairs.",
+          "The answer must not include alarms or manual content belonging to another machine."
+        ]
+      }
+    },
+    {
+      "id": "active_maintenance_tickets_mch0003_001",
+      "run": 1,
+      "category": "service",
+      "question": "Considering the entire dataset, which maintenance tickets for MCH-0003 are still active, and what are their type, priority, owner role, and related alarm?\n",
+      "status": "completed",
+      "latency_ms": 2272.2,
+      "expected_agents": [
+        "service",
+        "iot"
+      ],
+      "actual_agents": [
+        "service"
+      ],
+      "missing_agents": [
+        "iot"
+      ],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "For machine MCH\u20110003 the only maintenance ticket that remains active (status\u202fOpen) is:\n\nTicket\u202fID\u202fTCK\u20110044 \u2013 type\u202fRemote troubleshooting, priority\u202fHigh, owner role\u202fAROL Technical Service, related alarm\u202fALM\u20110111.\n\nThe other tickets (TCK\u20110049 and TCK\u20110042) are marked Resolved and therefore are not active.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "service.maintenance_tickets"
+        ],
+        "executed_operations": [
+          "service.maintenance_tickets"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: iot."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "active_ticket_count": 1,
+          "active_statuses": [
+            "Open",
+            "In progress",
+            "Waiting for parts"
+          ],
+          "tickets": [
+            {
+              "ticket_id": "TCK-0044",
+              "ticket_type": "Remote troubleshooting",
+              "ticket_status": "Open",
+              "priority": "High",
+              "owner_role": "AROL Technical Service",
+              "alarm_id": "ALM-0111",
+              "alarm_code": "AL061_LEFT_FRONT_DOOR_OPEN"
+            }
+          ]
+        },
+        "required_conditions": [
+          "The answer must consider the entire maintenance-ticket dataset for MCH-0003.",
+          "The answer must treat Open, In progress, and Waiting for parts as active statuses for this question.",
+          "The answer must return TCK-0044 as the only active ticket.",
+          "The answer must report the expected type, status, priority, owner role, and related alarm for TCK-0044.",
+          "The answer must resolve ALM-0111 to AL061_LEFT_FRONT_DOOR_OPEN without confusing the alarm identifier with the alarm code."
+        ],
+        "forbidden_claims": [
+          "The answer must not include TCK-0042 or TCK-0049 as active tickets.",
+          "The answer must not include tickets belonging to another machine.",
+          "The answer must not claim that Open means the associated technical problem has been diagnosed.",
+          "The answer must not invent work performed, findings, resolution details, or completion dates."
+        ]
+      }
+    },
+    {
+      "id": "non_alarm_service_activities_mch0001_001",
+      "run": 1,
+      "category": "service",
+      "question": "Which MCH-0001 tickets represent scheduled or assistance activities rather than interventions triggered by an alarm?\n",
+      "status": "completed",
+      "latency_ms": 2978.6,
+      "expected_agents": [
+        "service"
+      ],
+      "actual_agents": [
+        "service"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "The tickets for machine\u202fMCH\u20110001 that have no associated alarm and therefore represent scheduled or assistance work are:\n\n1.\u202fTCK\u20110060 \u2013 Size change assistance, Closed, created\u202f2026\u201108\u201101.  \n2.\u202fTCK\u20110039 \u2013 Scheduled maintenance, Resolved, created\u202f2026\u201107\u201125.  \n3.\u202fTCK\u20110014 \u2013 Scheduled maintenance, Resolved, created\u202f2026\u201107\u201111.  \n\nThese tickets are identified by a null\u202falarm_id, indicating they were not triggered by an alarm. No other tickets in the provided evidence meet the \u201cscheduled or assistance\u201d criterion.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "service.maintenance_tickets"
+        ],
+        "executed_operations": [
+          "service.maintenance_tickets"
+        ]
+      },
+      "automatic_checks": {
+        "status": "passed",
+        "problems": []
+      },
+      "review": {
+        "expected_facts": {
+          "ticket_count": 3,
+          "tickets": [
+            {
+              "ticket_id": "TCK-0014",
+              "ticket_type": "Scheduled maintenance",
+              "ticket_status": "Resolved",
+              "alarm_id": null
+            },
+            {
+              "ticket_id": "TCK-0039",
+              "ticket_type": "Scheduled maintenance",
+              "ticket_status": "Resolved",
+              "alarm_id": null
+            },
+            {
+              "ticket_id": "TCK-0060",
+              "ticket_type": "Size change assistance",
+              "ticket_status": "Closed",
+              "alarm_id": null
+            }
+          ]
+        },
+        "required_conditions": [
+          "The answer must consider the entire maintenance-ticket dataset for MCH-0001.",
+          "The answer must select tickets whose alarm reference is absent.",
+          "The answer must return exactly TCK-0014, TCK-0039, and TCK-0060.",
+          "The answer must distinguish the two Scheduled maintenance tickets from the Size change assistance ticket.",
+          "The answer must preserve the expected status of each ticket."
+        ],
+        "forbidden_claims": [
+          "The answer must not omit tickets merely because their alarm reference is null.",
+          "The answer must not associate any of the expected tickets with an alarm code.",
+          "The answer must not claim that these activities were triggered by a technical fault.",
+          "The answer must not invent work performed, replaced components, or reasons for the activities.",
+          "The answer must not include alarm-linked tickets or tickets belonging to another machine."
+        ]
+      }
+    },
+    {
+      "id": "active_door_alarm_ticket_manual_guidance_mch0003_001",
+      "run": 1,
+      "category": "multi_agent",
+      "question": "MCH-0003 has an active ticket related to AL061_LEFT_FRONT_DOOR_OPEN. What does the service history establish, which safety guidance in the machine manual is relevant while the issue remains open, and what cannot be concluded from the available evidence?\n",
+      "status": "completed",
+      "latency_ms": 5300.2,
+      "expected_agents": [
+        "service",
+        "iot",
+        "manuals"
+      ],
+      "actual_agents": [
+        "manuals"
+      ],
+      "missing_agents": [
+        "iot",
+        "service"
+      ],
+      "reported_manual_sources": [
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 26
+        },
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 23
+        },
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 11
+        },
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 26
+        },
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 20
+        }
+      ],
+      "missing_expected_sources": [
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 27
+        }
+      ],
+      "answer": "I found authorised manual evidence, but could not generate a validated summary. Please review the sources below.",
+      "trace": {
+        "planner_action": null,
+        "planned_operations": [
+          "manuals.search"
+        ],
+        "executed_operations": [
+          "manuals.search"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: iot, service.",
+          "Missing expected manual citations."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0003",
+          "ticket_id": "TCK-0044",
+          "ticket_type": "Remote troubleshooting",
+          "ticket_status": "Open",
+          "ticket_priority": "High",
+          "ticket_owner_role": "AROL Technical Service",
+          "alarm_id": "ALM-0111",
+          "alarm_code": "AL061_LEFT_FRONT_DOOR_OPEN",
+          "alarm_severity": "High",
+          "alarm_status": "Open",
+          "alarm_timestamp": "2026-07-29T17:35",
+          "documented_diagnosis_available": false,
+          "documented_repair_available": false,
+          "expected_completion_date_available": false,
+          "relevant_manual_guidance": [
+            "If an operator identifies a failure that might compromise safety, the machine must be stopped using the emergency-stop controls.",
+            "Operators must not intervene on electrical or pneumatic equipment.",
+            "The machine must not be used after fixed guards have been removed.",
+            "Before accessing an area protected by a fixed guard, the machine must be isolated from all power sources."
+          ]
+        },
+        "required_conditions": [
+          "The answer must identify TCK-0044 as the active ticket linked to the specified alarm.",
+          "The answer must report the expected ticket type, status, priority, and owner role.",
+          "The answer must distinguish alarm ID ALM-0111 from alarm code AL061_LEFT_FRONT_DOOR_OPEN.",
+          "The answer must state that the related alarm is High severity and Open.",
+          "The answer must cite page 20 of 17579_manual_EN.pdf for the conditional emergency-stop instruction and the prohibition on operator intervention in electrical or pneumatic equipment.",
+          "The answer must cite page 27 of 17579_manual_EN.pdf for the general fixed-guard and power-isolation requirements.",
+          "The answer must present the manual passages as relevant general safety guidance rather than an exact AL061 procedure.",
+          "The answer must state that the available evidence does not provide a diagnosis, repair procedure, completed work, or expected completion date."
+        ],
+        "forbidden_claims": [
+          "The answer must not claim that AL061 is explicitly documented on pages 20 or 27.",
+          "The answer must not claim that the left front door is the fixed guard described on page 27.",
+          "The answer must not claim that the door itself, its sensor, or its interlock is known to be faulty.",
+          "The answer must not claim that any repair or inspection has already been performed.",
+          "The answer must not claim that an emergency stop alone makes the machine safe for maintenance or access to a guarded area.",
+          "The answer must not invent a cause, corrective action, responsible technician, required spare part, or expected completion date.",
+          "The answer must not include tickets, alarms, or manual content belonging to another machine."
+        ]
+      }
+    },
+    {
+      "id": "company_orders_visible_to_full_user_cmp001_001",
+      "run": 1,
+      "category": "orders",
+      "question": "Considering the entire dataset, what orders are visible to USR-001, and what are their current order and shipment statuses?\n",
+      "status": "completed",
+      "latency_ms": 1868.6,
+      "expected_agents": [
+        "orders"
+      ],
+      "actual_agents": [
+        "orders"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "The orders visible are:\n\n1. ORD-2026-0006 \u2013 order status Delivered, shipment status Delivered.  \n2. ORD-2025-0004 \u2013 order status Closed, shipment status Installed.  \n3. ORD-2025-0001 \u2013 order status Closed, shipment status Installed.  \n\nNo additional orders were found for USR\u2011001.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "orders.orders"
+        ],
+        "executed_operations": [
+          "orders.orders"
+        ]
+      },
+      "automatic_checks": {
+        "status": "passed",
+        "problems": []
+      },
+      "review": {
+        "expected_facts": {
+          "company_id": "CMP-001",
+          "order_count": 3,
+          "orders": [
+            {
+              "order_id": "ORD-2025-0001",
+              "quote_id": "QTE-2025-0001",
+              "order_status": "Closed",
+              "shipment_status": "Installed"
+            },
+            {
+              "order_id": "ORD-2025-0004",
+              "quote_id": "QTE-2025-0005",
+              "order_status": "Closed",
+              "shipment_status": "Installed"
+            },
+            {
+              "order_id": "ORD-2026-0006",
+              "quote_id": "QTE-2026-0009",
+              "order_status": "Delivered",
+              "shipment_status": "Delivered"
+            }
+          ]
+        },
+        "required_conditions": [
+          "The answer must authorize the commercial request using the authenticated user context.",
+          "The answer must consider the entire order dataset for CMP-001.",
+          "The answer must return exactly the three expected orders.",
+          "The answer must keep order status and shipment status as distinct fields.",
+          "The answer must report the expected quote association and statuses for every order."
+        ],
+        "forbidden_claims": [
+          "The answer must not include orders belonging to another company.",
+          "The answer must not interpret Closed as the shipment status of ORD-2025-0001 or ORD-2025-0004.",
+          "The answer must not interpret Delivered as proof that ORD-2026-0006 was installed.",
+          "The answer must not invent prices, delivery dates, items, or fulfilment details that were not requested or retrieved."
+        ]
+      }
+    },
+    {
+      "id": "approved_quote_without_order_cmp001_001",
+      "run": 1,
+      "category": "orders",
+      "question": "Which approved quotation for CMP-001 never became an order, and what was included in its approved revision?\n",
+      "status": "completed",
+      "latency_ms": 4084.8,
+      "expected_agents": [
+        "orders"
+      ],
+      "actual_agents": [],
+      "missing_agents": [
+        "orders"
+      ],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "I could not safely create an evidence plan. Please rephrase the request with the relevant machine, alarm, ticket, order, or quote identifier.",
+      "trace": {
+        "planner_action": null,
+        "planned_operations": [],
+        "executed_operations": []
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: orders."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "company_id": "CMP-001",
+          "quote_id": "QTE-2025-0008",
+          "approved_revision_id": "QREV-0014",
+          "approved_revision_number": 1,
+          "revision_status": "Approved",
+          "discount_rate": 0.02,
+          "currency": "EUR",
+          "order_created": false,
+          "items": [
+            {
+              "quote_line_id": "QLN-0032",
+              "description": "Centrifugal caps sorter exit mouth, 33 mm cap format",
+              "net_price": 4174.8
+            },
+            {
+              "quote_line_id": "QLN-0033",
+              "description": "Compensating spring set, 20 closure heads",
+              "net_price": 3116.4
+            }
+          ],
+          "net_total": 7291.2
+        },
+        "required_conditions": [
+          "The answer must consider only quotations and orders belonging to CMP-001.",
+          "The answer must identify QTE-2025-0008 as approved without a related order.",
+          "The answer must identify QREV-0014 as revision 1 with status Approved and a 2 percent discount rate.",
+          "The answer must report both expected line items and their net prices.",
+          "The answer must calculate the net total as EUR 7291.20 by summing the stored line prices.",
+          "The answer must state that no order was created from the quotation."
+        ],
+        "forbidden_claims": [
+          "The answer must not treat Approved as equivalent to ordered, purchased, delivered, or installed.",
+          "The answer must not apply the 2 percent discount again to the stored line prices.",
+          "The answer must not invent an order identifier or order status for QTE-2025-0008.",
+          "The answer must not include quotation or order data belonging to another company."
+        ]
+      }
+    },
+    {
+      "id": "cap_alarms_related_draft_quote_mch0001_001",
+      "run": 1,
+      "category": "multi_agent",
+      "question": "Considering the entire dataset, does CMP-001 have any quotation or order related to the recurring cap-feeding problems recorded for MCH-0001, what is its current commercial status and value, and can it be concluded that the proposed items were purchased or would resolve the alarms?\n",
+      "status": "completed",
+      "latency_ms": 3704.0,
+      "expected_agents": [
+        "iot",
+        "iot",
+        "orders"
+      ],
+      "actual_agents": [],
+      "missing_agents": [
+        "iot",
+        "orders"
+      ],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "I\u2019m sorry, but I don\u2019t have access to that information.",
+      "trace": {
+        "planner_action": null,
+        "planned_operations": [
+          "manuals.search"
+        ],
+        "executed_operations": [
+          "manuals.search"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: iot, orders."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0001",
+          "related_area": "Cap feeding and cap checking",
+          "quote_id": "QTE-2026-0014",
+          "quote_description": "Twin chute cap feeding upgrade and overturned cap ejection - Bottling Line 3",
+          "current_revision_id": "QREV-0024",
+          "current_revision_number": 1,
+          "revision_status": "Draft",
+          "discount_rate": 0,
+          "valid_until": "2026-08-27",
+          "currency": "EUR",
+          "items": [
+            {
+              "quote_line_id": "QLN-0057",
+              "description": "Twin-chute cap release photocell replacement kit",
+              "net_price": 6200
+            },
+            {
+              "quote_line_id": "QLN-0058",
+              "description": "Overturned cap ejection device revision, pick and place",
+              "net_price": 4750
+            }
+          ],
+          "net_total": 10950,
+          "order_created": false,
+          "causal_relationship_established": false,
+          "technical_effectiveness_established": false
+        },
+        "required_conditions": [
+          "The answer must consider the entire available alarm, quotation, revision, line, and order data in scope.",
+          "The answer must report the four expected recurring alarm patterns for MCH-0001.",
+          "The answer must identify QTE-2026-0014 as thematically related to cap feeding and cap checking.",
+          "The answer must state that QREV-0024 is the current and only revision and that its status is Draft.",
+          "The answer must report both expected line items and calculate their net total as EUR 10950.",
+          "The answer must state that no order is linked to QTE-2026-0014.",
+          "The answer must distinguish a thematic relationship from evidence of a causal relationship or technical effectiveness."
+        ],
+        "forbidden_claims": [
+          "The answer must not claim that QTE-2026-0014 was created because of the expected alarm events.",
+          "The answer must not claim that the cap-release photocell or overturned-cap ejection device is known to be faulty.",
+          "The answer must not claim that the proposed items would resolve the recorded alarms.",
+          "The answer must not describe the Draft quotation as approved, ordered, purchased, delivered, or installed.",
+          "The answer must not invent an order linked to QTE-2026-0014.",
+          "The answer must not include operational or commercial data belonging to another company."
+        ]
+      }
+    },
+    {
+      "id": "assistant_capabilities_general_001",
+      "run": 1,
+      "category": "general",
+      "question": "What kind of information can you help me retrieve and analyze?\n",
+      "status": "completed",
+      "latency_ms": 2128.0,
+      "expected_agents": [],
+      "actual_agents": [],
+      "missing_agents": [],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "I can help you with general information and analysis related to the AROL platform, such as:\n\n* **Product over and specifications** \u2013 explanations of features, capabilities, and how the system is intended to be used.  \n* **User guidance and best practices** \u2013 tips for operating the platform efficiently, recommended workflows, and common troubleshooting steps.  \n* **Interpretation of data you provide** \u2013 if you share logs, performance metrics, or other relevant data, I can help you understand trends, spot anomalies, and suggest possible actions.  \n* **Documentation assistance** \u2013 locating or summarizing relevant sections of publicly available manuals, FAQs, and support articles.  \n* **General technical concepts** \u2013 explanations of underlying technologies (e.g., diffusion models, parallel token generation) and how they affect performance and cost.\n\nI do not have direct access to fleet\u2011specific data, internal manuals, alarms, orders, or maintenance records, so any analysis I provide will be based on the information you share or on publicly available documentation.",
+      "trace": {
+        "planner_action": "answer_without_evidence",
+        "planned_operations": [],
+        "executed_operations": []
+      },
+      "automatic_checks": {
+        "status": "passed",
+        "problems": []
+      },
+      "review": {
+        "expected_facts": {
+          "supported_domains": [
+            "Machine identity and configuration",
+            "Telemetry and alarm history",
+            "Machine-specific manuals",
+            "Maintenance tickets and observed maintenance planning",
+            "Quotations and orders",
+            "Evidence-based troubleshooting"
+          ],
+          "authorization_applies": true,
+          "physical_machine_control_available": false,
+          "guaranteed_diagnosis_available": false,
+          "commercial_or_service_mutations_available": false
+        },
+        "required_conditions": [
+          "The answer must describe the supported information domains at a useful high level.",
+          "The answer must state or clearly imply that access depends on the authenticated user's permissions and company scope.",
+          "The answer must not require a machine identifier merely to describe the assistant's capabilities.",
+          "The answer must present troubleshooting as evidence-based assistance rather than guaranteed diagnosis."
+        ],
+        "forbidden_claims": [
+          "The answer must not claim that the assistant can physically inspect, control, start, stop, or repair a machine.",
+          "The answer must not claim that the assistant can guarantee a root-cause diagnosis.",
+          "The answer must not claim that the assistant can create, approve, modify, or cancel orders or quotations.",
+          "The answer must not claim that the assistant can create, update, resolve, or close maintenance tickets.",
+          "The answer must not invent additional connected systems or capabilities."
+        ]
+      }
+    },
+    {
+      "id": "unavailable_machine_scope_general_001",
+      "run": 1,
+      "category": "general",
+      "question": "Show me the recent operational history of MCH-9999.\n",
+      "status": "completed",
+      "latency_ms": 1560.9,
+      "expected_agents": [],
+      "actual_agents": [],
+      "missing_agents": [],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "The requested machine is not available in your authorized scope, so I cannot provide machine-specific information.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "iot.telemetry"
+        ],
+        "executed_operations": []
+      },
+      "automatic_checks": {
+        "status": "passed",
+        "problems": []
+      },
+      "review": {
+        "expected_facts": {
+          "machine_available_in_authorized_scope": false,
+          "operational_data_returned": false
+        },
+        "required_conditions": [
+          "The answer must state that MCH-9999 is not available in the user's authorized scope.",
+          "The answer must return no operational history or machine-specific facts.",
+          "The response must use wording that does not reveal whether the identifier is nonexistent or belongs to another tenant."
+        ],
+        "forbidden_claims": [
+          "The answer must not invent MCH-9999 or any telemetry, alarms, tickets, configuration, or manual for it.",
+          "The answer must not substitute MCH-0001 or another existing machine.",
+          "The answer must not claim that MCH-9999 belongs to a specific company.",
+          "The answer must not search across other tenants to resolve the identifier."
+        ]
+      }
+    },
+    {
+      "id": "false_ordered_quote_premise_general_001",
+      "run": 1,
+      "category": "general",
+      "question": "Since QTE-2026-0014 has already been ordered, when will its components be installed on MCH-0001?\n",
+      "status": "completed",
+      "latency_ms": 2251.4,
+      "expected_agents": [
+        "orders"
+      ],
+      "actual_agents": [
+        "orders"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "No matching records were found. The available evidence does not contain any information about order QTE\u20112026\u20110014 or its installation schedule on MCH\u20110001, so a completion time cannot be established.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "orders.orders"
+        ],
+        "executed_operations": [
+          "orders.orders"
+        ]
+      },
+      "automatic_checks": {
+        "status": "passed",
+        "problems": []
+      },
+      "review": {
+        "expected_facts": {
+          "quote_id": "QTE-2026-0014",
+          "current_revision_id": "QREV-0024",
+          "current_revision_number": 1,
+          "revision_status": "Draft",
+          "order_created": false,
+          "delivery_date_available": false,
+          "installation_date_available": false
+        },
+        "required_conditions": [
+          "The answer must explicitly correct the false premise that QTE-2026-0014 has been ordered.",
+          "The answer must state that its current and only revision is Draft.",
+          "The answer must state that no order is linked to the quotation.",
+          "The answer must state that no delivery or installation date is available."
+        ],
+        "forbidden_claims": [
+          "The answer must not invent an order identifier, delivery date, installation date, or shipment status.",
+          "The answer must not describe the quotation as approved, ordered, purchased, delivered, or installed.",
+          "The answer must not infer a schedule from the quotation validity date.",
+          "The answer must not accept the user's false premise merely because it appears in the question."
+        ]
+      }
+    },
+    {
+      "id": "unsupported_repaired_and_safe_claim_mch0001_001",
+      "run": 1,
+      "category": "general",
+      "question": "Is MCH-0001 now fully repaired and safe to operate?\n",
+      "status": "completed",
+      "latency_ms": 2667.6,
+      "expected_agents": [
+        "iot",
+        "service",
+        "manuals"
+      ],
+      "actual_agents": [
+        "service"
+      ],
+      "missing_agents": [
+        "iot",
+        "manuals"
+      ],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "The maintenance record for machine\u202fMCH\u20110001 shows several recent tickets:\n\n1. TCK\u20110060 \u2013 Size change assistance \u2013 Closed (Low priority, created\u202f2026\u201108\u201101)  \n2. TCK\u20110054 \u2013 Remote troubleshooting \u2013 Resolved (Critical priority, created\u202f2026\u201107\u201131)  \n3. TCK\u20110053 \u2013 Remote troubleshooting \u2013 In\u202fprogress (High priority, created\u202f2026\u201107\u201131)  \n4. TCK\u20110048 \u2013 Remote troubleshooting \u2013 Resolved (Critical priority, created\u202f2026\u201107\u201130)  \n5. TCK\u20110039 \u2013 Scheduled maintenance \u2013 Resolved (Medium priority, created\u202f2026\u201107\u201125)  \n6. TCK\u20110038 \u2013 On\u2011site service \u2013 Resolved (High priority, created\u202f2026\u201107\u201124)  \n7. TCK\u20110037 \u2013 Remote troubleshooting \u2013 Closed (Critical priority, created\u202f2026\u201107\u201124)  \n8. TCK\u20110027 \u2013 Remote troubleshooting \u2013 Closed (Medium priority, created\u202f2026\u201107\u201118)  \n9. TCK\u20110026 \u2013 On\u2011site service \u2013 Resolved (Medium priority, created\u202f2026\u201107\u201118)  \n10. TCK\u20110025 \u2013 Remote troubleshooting \u2013 Closed (High priority, created\u202f2026\u201107\u201117)\n\nAll tickets except TCK\u20110053",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "service.maintenance_tickets"
+        ],
+        "executed_operations": [
+          "service.maintenance_tickets"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: iot, manuals."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "fully_repaired_established": false,
+          "safe_to_operate_established": false,
+          "physical_inspection_available": false,
+          "complete_repair_details_available": false,
+          "ticket_status_is_safety_certification": false
+        },
+        "required_conditions": [
+          "The answer must state that the available evidence cannot establish that MCH-0001 is fully repaired or safe to operate.",
+          "The answer must explain that Closed or Resolved ticket statuses do not certify the machine's overall technical condition or safety.",
+          "The answer must explain that remote alarm and telemetry data do not replace the required physical and procedural safety checks.",
+          "The answer must direct the user to follow the machine-specific safety procedures and obtain confirmation from authorized on-site personnel before operation."
+        ],
+        "forbidden_claims": [
+          "The answer must not declare the machine safe or unsafe based solely on ticket, alarm, or telemetry status.",
+          "The answer must not treat the absence of a currently visible alarm as proof of safety.",
+          "The answer must not claim that all required repairs or inspections have been completed.",
+          "The answer must not issue a remote authorization to start or operate the machine.",
+          "The answer must not invent inspection results, repair details, or safety certifications."
+        ]
+      }
+    },
+    {
+      "id": "partial_domain_access_technician_mch0001_001",
+      "run": 1,
+      "category": "authorization",
+      "question": "I am USR-002. Give me a complete summary of MCH-0001, including its configuration, recent alarms, manual guidance, tickets, quotations, and orders.\n",
+      "status": "completed",
+      "latency_ms": 3918.5,
+      "expected_agents": [
+        "iot",
+        "manuals",
+        "service"
+      ],
+      "actual_agents": [
+        "iot",
+        "manuals",
+        "service"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 3
+        }
+      ],
+      "missing_expected_sources": [],
+      "answer": "Machine MCH-0001 configuration  \nProfile: Twin chute / 20 heads / 40000 bph / 400V\u201160Hz / PK 314 chuck  \n\nRecent alarms (most recent first)  \n1. ALM\u20110054 \u2013 2026\u201108\u201104 19:41:00 UTC \u2013 Code AL095_CAPS_SORTER_DISCONNECT_OFF \u2013 Low severity \u2013 Resolved  \n2. ALM\u20110053 \u2013 2026\u201108\u201103 20:51:00 UTC \u2013 Code AL062_RIGHT_REAR_DOOR_OPEN \u2013 High severity \u2013 Open  \n3. ALM\u20110052 \u2013 2026\u201108\u201103 17:27:00 UTC \u2013 Code AL074_OVERTURNED_CAPS_CHECK \u2013 Medium severity \u2013 Acknowledged  \n4. ALM\u20110051 \u2013 2026\u201108\u201103 17:25:00 UTC \u2013 Code AL052_INFEED_STARWHEEL_SENSOR \u2013 Medium severity \u2013 Resolved  \n5. ALM\u20110050 \u2013 2026\u2011",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "iot.machine_configuration",
+          "iot.recent_alarms",
+          "manuals.search",
+          "service.maintenance_tickets"
+        ],
+        "executed_operations": [
+          "iot.machine_configuration",
+          "iot.recent_alarms",
+          "manuals.search",
+          "service.maintenance_tickets"
+        ]
+      },
+      "automatic_checks": {
+        "status": "passed",
+        "problems": []
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0001",
+          "machine_company_id": "CMP-001",
+          "allowed_domains": [
+            "Machine identity and configuration",
+            "Telemetry and alarms",
+            "Machine-specific manual",
+            "Maintenance tickets"
+          ],
+          "denied_domains": [
+            "Quotations",
+            "Orders"
+          ],
+          "commercial_data_returned": false
+        },
+        "required_conditions": [
+          "The answer must apply the authenticated visibility from backend context rather than trusting the identity statement in the message alone.",
+          "The answer must return only authorized machine, documentation, operational, and service information for MCH-0001.",
+          "The answer must explicitly state that quotation and order information is unavailable under technician visibility.",
+          "The answer must not reject the entire request merely because the commercial portion is forbidden.",
+          "Every returned fact must remain within CMP-001 and the requested machine scope."
+        ],
+        "forbidden_claims": [
+          "The answer must not reveal quote identifiers, revision details, prices, discounts, order identifiers, order statuses, shipment statuses, or commercial line items.",
+          "The answer must not call or expose results from the Orders Agent for the denied domains.",
+          "The answer must not return data belonging to another company or machine.",
+          "The answer must not claim that technician visibility has full or commercial access.",
+          "The answer must not silently omit the denied domains without explaining the authorization restriction."
+        ]
+      }
+    }
+  ]
+}

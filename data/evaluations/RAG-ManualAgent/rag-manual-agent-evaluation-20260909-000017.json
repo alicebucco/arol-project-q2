@@ -1,0 +1,566 @@
+{
+  "top_k": 3,
+  "page_tolerance": 2,
+  "case_count": 16,
+  "metrics": {
+    "file_recall_at_k": 1,
+    "mean_reciprocal_rank": 1.0,
+    "mean_keyword_coverage": 0.714,
+    "page_recall_at_k": 0.75,
+    "page_recall_at_k_within_tolerance": 0.938,
+    "page_case_count": 16
+  },
+  "cases": [
+    {
+      "id": "15610-maintenance-qualifications",
+      "question": "What qualities should a Maintenance Man have?",
+      "machine_id": "MCH-0001",
+      "expected_file": "15610_manual_EN.pdf",
+      "expected_page": 24,
+      "file_rank": 1,
+      "page_rank": 1,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 1.0,
+      "found_keywords": [
+        "technical preparation",
+        "working experience",
+        "mechanical",
+        "electrical"
+      ],
+      "retrieved_sources": [
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 24,
+          "section": "safety",
+          "relevance": 0.565
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 94,
+          "section": "mechanical",
+          "relevance": 0.528
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 23,
+          "section": "safety",
+          "relevance": 0.524
+        }
+      ]
+    },
+    {
+      "id": "15610-pk314-removal-tools",
+      "question": "What tools are needed for the removal of the PK 314 closure chuck?",
+      "machine_id": "MCH-0001",
+      "expected_file": "15610_manual_EN.pdf",
+      "expected_page": 64,
+      "file_rank": 1,
+      "page_rank": 1,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 1.0,
+      "found_keywords": [
+        "hook wrench",
+        "hexagonal wrench",
+        "34"
+      ],
+      "retrieved_sources": [
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 64,
+          "section": "mechanical",
+          "relevance": 0.852
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 66,
+          "section": "mechanical",
+          "relevance": 0.737
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 123,
+          "section": "mechanical",
+          "relevance": 0.703
+        }
+      ]
+    },
+    {
+      "id": "17203-safety-procedures",
+      "question": "What safety procedures are required when operating or maintaining the machine?",
+      "machine_id": "MCH-0002",
+      "expected_file": "17203_manual_EN.pdf",
+      "expected_page": 30,
+      "file_rank": 1,
+      "page_rank": null,
+      "page_rank_within_tolerance": 3,
+      "keyword_coverage": 0.0,
+      "found_keywords": [],
+      "retrieved_sources": [
+        {
+          "file": "17203_manual_EN.pdf",
+          "page": 21,
+          "section": "safety",
+          "relevance": 0.808
+        },
+        {
+          "file": "17203_manual_EN.pdf",
+          "page": 27,
+          "section": "safety",
+          "relevance": 0.797
+        },
+        {
+          "file": "17203_manual_EN.pdf",
+          "page": 31,
+          "section": "safety",
+          "relevance": 0.776
+        }
+      ]
+    },
+    {
+      "id": "17203-startup",
+      "question": "How do you start up the machine?",
+      "machine_id": "MCH-0002",
+      "expected_file": "17203_manual_EN.pdf",
+      "expected_page": 50,
+      "file_rank": 1,
+      "page_rank": null,
+      "page_rank_within_tolerance": null,
+      "keyword_coverage": 0.0,
+      "found_keywords": [],
+      "retrieved_sources": [
+        {
+          "file": "17203_manual_EN.pdf",
+          "page": 3,
+          "section": "general",
+          "relevance": 0.584
+        }
+      ]
+    },
+    {
+      "id": "17478-speed-adjustment",
+      "question": "How do you adjust the speed of the closing machine?",
+      "machine_id": "MCH-0004",
+      "expected_file": "17478_manual_EN.pdf",
+      "expected_page": 130,
+      "file_rank": 1,
+      "page_rank": 1,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 1.0,
+      "found_keywords": [
+        "operator panel",
+        "speed reference",
+        "minimum",
+        "maximum speed photocells"
+      ],
+      "retrieved_sources": [
+        {
+          "file": "17478_manual_EN.pdf",
+          "page": 130,
+          "section": "safety",
+          "relevance": 0.729
+        },
+        {
+          "file": "17478_manual_EN.pdf",
+          "page": 97,
+          "section": "troubleshooting",
+          "relevance": 0.713
+        },
+        {
+          "file": "17478_manual_EN.pdf",
+          "page": 121,
+          "section": "safety",
+          "relevance": 0.678
+        }
+      ]
+    },
+    {
+      "id": "17478-oil-level",
+      "question": "How do you check the oil level?",
+      "machine_id": "MCH-0004",
+      "expected_file": "17478_manual_EN.pdf",
+      "expected_page": 236,
+      "file_rank": 1,
+      "page_rank": 1,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 1.0,
+      "found_keywords": [
+        "remove the plug",
+        "fill level",
+        "screw the plug"
+      ],
+      "retrieved_sources": [
+        {
+          "file": "17478_manual_EN.pdf",
+          "page": 236,
+          "section": "mechanical",
+          "relevance": 0.659
+        },
+        {
+          "file": "17478_manual_EN.pdf",
+          "page": 241,
+          "section": "mechanical",
+          "relevance": 0.586
+        },
+        {
+          "file": "17478_manual_EN.pdf",
+          "page": 236,
+          "section": "mechanical",
+          "relevance": 0.571
+        }
+      ]
+    },
+    {
+      "id": "17579-maintenance-40-hours",
+      "question": "What maintenance routine is required every 40 working hours?",
+      "machine_id": "MCH-0003",
+      "expected_file": "17579_manual_EN.pdf",
+      "expected_page": 97,
+      "file_rank": 1,
+      "page_rank": null,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 0.0,
+      "found_keywords": [],
+      "retrieved_sources": [
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 95,
+          "section": "mechanical",
+          "relevance": 0.803
+        },
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 96,
+          "section": "mechanical",
+          "relevance": 0.648
+        },
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 95,
+          "section": "mechanical",
+          "relevance": 0.635
+        }
+      ]
+    },
+    {
+      "id": "17579-pickoff-chute-installation",
+      "question": "How do you install the caps chute with pick-off cap distribution?",
+      "machine_id": "MCH-0003",
+      "expected_file": "17579_manual_EN.pdf",
+      "expected_page": 32,
+      "file_rank": 1,
+      "page_rank": 3,
+      "page_rank_within_tolerance": 3,
+      "keyword_coverage": 1.0,
+      "found_keywords": [
+        "threaded fasteners",
+        "height adjustment pin",
+        "photocell"
+      ],
+      "retrieved_sources": [
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 69,
+          "section": "mechanical",
+          "relevance": 0.827
+        },
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 67,
+          "section": "mechanical",
+          "relevance": 0.801
+        },
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 32,
+          "section": "mechanical",
+          "relevance": 0.763
+        }
+      ]
+    },
+    {
+      "id": "a2055-startup-checks",
+      "question": "What should you check before starting up the machine?",
+      "machine_id": "MCH-0007",
+      "expected_file": "A2055_manual_EN.pdf",
+      "expected_page": 38,
+      "file_rank": 1,
+      "page_rank": 1,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 1.0,
+      "found_keywords": [
+        "electric feeding phases",
+        "pneumatic",
+        "motor absorption",
+        "rotation direction"
+      ],
+      "retrieved_sources": [
+        {
+          "file": "A2055_manual_EN.pdf",
+          "page": 38,
+          "section": "mechanical",
+          "relevance": 0.779
+        },
+        {
+          "file": "A2055_manual_EN.pdf",
+          "page": 46,
+          "section": "mechanical",
+          "relevance": 0.619
+        },
+        {
+          "file": "A2055_manual_EN.pdf",
+          "page": 25,
+          "section": "safety",
+          "relevance": 0.59
+        }
+      ]
+    },
+    {
+      "id": "a2055-bottle-transfer-installation",
+      "question": "How do you install the bottle transfer equipment?",
+      "machine_id": "MCH-0007",
+      "expected_file": "A2055_manual_EN.pdf",
+      "expected_page": 68,
+      "file_rank": 1,
+      "page_rank": 1,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 1.0,
+      "found_keywords": [
+        "conveyor",
+        "knobs",
+        "bottles",
+        "clearance"
+      ],
+      "retrieved_sources": [
+        {
+          "file": "A2055_manual_EN.pdf",
+          "page": 68,
+          "section": "mechanical",
+          "relevance": 0.715
+        },
+        {
+          "file": "A2055_manual_EN.pdf",
+          "page": 66,
+          "section": "mechanical",
+          "relevance": 0.566
+        },
+        {
+          "file": "A2055_manual_EN.pdf",
+          "page": 41,
+          "section": "safety",
+          "relevance": 0.544
+        }
+      ]
+    },
+    {
+      "id": "a2064-tightening-torque",
+      "question": "How do you adjust the tightening torque?",
+      "machine_id": "MCH-0006",
+      "expected_file": "A2064_manual_EN.pdf",
+      "expected_page": 76,
+      "file_rank": 1,
+      "page_rank": 1,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 0.667,
+      "found_keywords": [
+        "slotted ring nut",
+        "magnet adjustment ring nut"
+      ],
+      "retrieved_sources": [
+        {
+          "file": "A2064_manual_EN.pdf",
+          "page": 76,
+          "section": "mechanical",
+          "relevance": 0.696
+        },
+        {
+          "file": "A2064_manual_EN.pdf",
+          "page": 34,
+          "section": "safety",
+          "relevance": 0.56
+        },
+        {
+          "file": "A2064_manual_EN.pdf",
+          "page": 82,
+          "section": "mechanical",
+          "relevance": 0.434
+        }
+      ]
+    },
+    {
+      "id": "a2064-caps-sorter",
+      "question": "What should you do if caps do not descend from the caps sorter?",
+      "machine_id": "MCH-0006",
+      "expected_file": "A2064_manual_EN.pdf",
+      "expected_page": 111,
+      "file_rank": 1,
+      "page_rank": null,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 0.0,
+      "found_keywords": [],
+      "retrieved_sources": [
+        {
+          "file": "A2064_manual_EN.pdf",
+          "page": 113,
+          "section": "mechanical",
+          "relevance": 0.663
+        },
+        {
+          "file": "A2064_manual_EN.pdf",
+          "page": 100,
+          "section": "safety",
+          "relevance": 0.613
+        },
+        {
+          "file": "A2064_manual_EN.pdf",
+          "page": 103,
+          "section": "safety",
+          "relevance": 0.529
+        }
+      ]
+    },
+    {
+      "id": "a2132-identification",
+      "question": "How is the machine identified?",
+      "machine_id": "MCH-0008",
+      "expected_file": "A2132_manual_EN.pdf",
+      "expected_page": 12,
+      "file_rank": 1,
+      "page_rank": 1,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 1.0,
+      "found_keywords": [
+        "CE marking",
+        "identification plate",
+        "serial number"
+      ],
+      "retrieved_sources": [
+        {
+          "file": "A2132_manual_EN.pdf",
+          "page": 12,
+          "section": "technical_data",
+          "relevance": 0.658
+        },
+        {
+          "file": "A2132_manual_EN.pdf",
+          "page": 13,
+          "section": "safety",
+          "relevance": 0.502
+        },
+        {
+          "file": "A2132_manual_EN.pdf",
+          "page": 13,
+          "section": "safety",
+          "relevance": 0.473
+        }
+      ]
+    },
+    {
+      "id": "a2132-caps-chute-installation",
+      "question": "How do you install the caps chute?",
+      "machine_id": "MCH-0008",
+      "expected_file": "A2132_manual_EN.pdf",
+      "expected_page": 77,
+      "file_rank": 1,
+      "page_rank": 1,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 1.0,
+      "found_keywords": [
+        "centering dowels",
+        "bolt",
+        "photocell"
+      ],
+      "retrieved_sources": [
+        {
+          "file": "A2132_manual_EN.pdf",
+          "page": 77,
+          "section": "mechanical",
+          "relevance": 0.687
+        },
+        {
+          "file": "A2132_manual_EN.pdf",
+          "page": 78,
+          "section": "mechanical",
+          "relevance": 0.674
+        },
+        {
+          "file": "A2132_manual_EN.pdf",
+          "page": 10,
+          "section": "technical_data",
+          "relevance": 0.514
+        }
+      ]
+    },
+    {
+      "id": "a4344-magnetic-ring",
+      "question": "How do you check the magnetic ring?",
+      "machine_id": "MCH-0005",
+      "expected_file": "A4344_manual_EN.pdf",
+      "expected_page": 105,
+      "file_rank": 1,
+      "page_rank": 1,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 1.0,
+      "found_keywords": [
+        "torquemeter",
+        "static torque",
+        "tolerance"
+      ],
+      "retrieved_sources": [
+        {
+          "file": "A4344_manual_EN.pdf",
+          "page": 105,
+          "section": "mechanical",
+          "relevance": 0.643
+        },
+        {
+          "file": "A4344_manual_EN.pdf",
+          "page": 107,
+          "section": "mechanical",
+          "relevance": 0.604
+        },
+        {
+          "file": "A4344_manual_EN.pdf",
+          "page": 108,
+          "section": "mechanical",
+          "relevance": 0.572
+        }
+      ]
+    },
+    {
+      "id": "a4344-user-roles",
+      "question": "What are the users' professional roles?",
+      "machine_id": "MCH-0005",
+      "expected_file": "A4344_manual_EN.pdf",
+      "expected_page": 21,
+      "file_rank": 1,
+      "page_rank": 1,
+      "page_rank_within_tolerance": 1,
+      "keyword_coverage": 0.75,
+      "found_keywords": [
+        "operator",
+        "mechanical maintenance",
+        "training"
+      ],
+      "retrieved_sources": [
+        {
+          "file": "A4344_manual_EN.pdf",
+          "page": 21,
+          "section": "safety",
+          "relevance": 0.495
+        },
+        {
+          "file": "A4344_manual_EN.pdf",
+          "page": 22,
+          "section": "safety",
+          "relevance": 0.438
+        },
+        {
+          "file": "A4344_manual_EN.pdf",
+          "page": 22,
+          "section": "safety",
+          "relevance": 0.351
+        }
+      ]
+    }
+  ]
+}

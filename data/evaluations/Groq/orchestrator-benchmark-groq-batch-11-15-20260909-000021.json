@@ -1,0 +1,425 @@
+{
+  "generated_at": "2026-09-09T19:58:02.116560+00:00",
+  "provider": {
+    "base_url": "https://api.groq.com/openai/v1",
+    "model": "openai/gpt-oss-20b"
+  },
+  "case_count": 5,
+  "repetitions": 1,
+  "metrics": {
+    "attempts": 5,
+    "completed": 5,
+    "execution_errors": 0,
+    "automatic_check_failures": 3,
+    "automatic_check_pass_rate": 0.4,
+    "mean_latency_ms": 31603.7
+  },
+  "problem_cases": [
+    "active_door_alarm_ticket_manual_guidance_mch0003_001",
+    "approved_quote_without_order_cmp001_001",
+    "cap_alarms_related_draft_quote_mch0001_001"
+  ],
+  "cases": [
+    {
+      "id": "non_alarm_service_activities_mch0001_001",
+      "run": 1,
+      "category": "service",
+      "question": "Which MCH-0001 tickets represent scheduled or assistance activities rather than interventions triggered by an alarm?\n",
+      "status": "completed",
+      "latency_ms": 8257.7,
+      "expected_agents": [
+        "service"
+      ],
+      "actual_agents": [
+        "service"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "The tickets for machine MCH\u20110001 that are scheduled or assistance activities (not triggered by an alarm) are:\n\n1. Ticket TCK\u20110039 \u2013 Scheduled maintenance, resolved.\n2. Ticket TCK\u20110014 \u2013 Scheduled maintenance, resolved.\n3. Ticket TCK\u20110060 \u2013 Size change assistance, closed.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "service.maintenance_tickets",
+          "service.maintenance_tickets"
+        ],
+        "executed_operations": [
+          "service.maintenance_tickets",
+          "service.maintenance_tickets"
+        ]
+      },
+      "automatic_checks": {
+        "status": "passed",
+        "problems": []
+      },
+      "review": {
+        "expected_facts": {
+          "ticket_count": 3,
+          "tickets": [
+            {
+              "ticket_id": "TCK-0014",
+              "ticket_type": "Scheduled maintenance",
+              "ticket_status": "Resolved",
+              "alarm_id": null
+            },
+            {
+              "ticket_id": "TCK-0039",
+              "ticket_type": "Scheduled maintenance",
+              "ticket_status": "Resolved",
+              "alarm_id": null
+            },
+            {
+              "ticket_id": "TCK-0060",
+              "ticket_type": "Size change assistance",
+              "ticket_status": "Closed",
+              "alarm_id": null
+            }
+          ]
+        },
+        "required_conditions": [
+          "The answer must consider the entire maintenance-ticket dataset for MCH-0001.",
+          "The answer must select tickets whose alarm reference is absent.",
+          "The answer must return exactly TCK-0014, TCK-0039, and TCK-0060.",
+          "The answer must distinguish the two Scheduled maintenance tickets from the Size change assistance ticket.",
+          "The answer must preserve the expected status of each ticket."
+        ],
+        "forbidden_claims": [
+          "The answer must not omit tickets merely because their alarm reference is null.",
+          "The answer must not associate any of the expected tickets with an alarm code.",
+          "The answer must not claim that these activities were triggered by a technical fault.",
+          "The answer must not invent work performed, replaced components, or reasons for the activities.",
+          "The answer must not include alarm-linked tickets or tickets belonging to another machine."
+        ]
+      }
+    },
+    {
+      "id": "active_door_alarm_ticket_manual_guidance_mch0003_001",
+      "run": 1,
+      "category": "multi_agent",
+      "question": "MCH-0003 has an active ticket related to AL061_LEFT_FRONT_DOOR_OPEN. What does the service history establish, which safety guidance in the machine manual is relevant while the issue remains open, and what cannot be concluded from the available evidence?\n",
+      "status": "completed",
+      "latency_ms": 43599.0,
+      "expected_agents": [
+        "service",
+        "iot",
+        "manuals"
+      ],
+      "actual_agents": [
+        "manuals"
+      ],
+      "missing_agents": [
+        "iot",
+        "service"
+      ],
+      "reported_manual_sources": [
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 26
+        },
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 23
+        },
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 11
+        },
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 26
+        },
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 20
+        }
+      ],
+      "missing_expected_sources": [
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 27
+        }
+      ],
+      "answer": "I found authorised manual evidence, but could not generate a validated summary. Please review the sources below.",
+      "trace": {
+        "planner_action": null,
+        "planned_operations": [
+          "manuals.search"
+        ],
+        "executed_operations": [
+          "manuals.search"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: iot, service.",
+          "Missing expected manual citations."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0003",
+          "ticket_id": "TCK-0044",
+          "ticket_type": "Remote troubleshooting",
+          "ticket_status": "Open",
+          "ticket_priority": "High",
+          "ticket_owner_role": "AROL Technical Service",
+          "alarm_id": "ALM-0111",
+          "alarm_code": "AL061_LEFT_FRONT_DOOR_OPEN",
+          "alarm_severity": "High",
+          "alarm_status": "Open",
+          "alarm_timestamp": "2026-07-29T17:35",
+          "documented_diagnosis_available": false,
+          "documented_repair_available": false,
+          "expected_completion_date_available": false,
+          "relevant_manual_guidance": [
+            "If an operator identifies a failure that might compromise safety, the machine must be stopped using the emergency-stop controls.",
+            "Operators must not intervene on electrical or pneumatic equipment.",
+            "The machine must not be used after fixed guards have been removed.",
+            "Before accessing an area protected by a fixed guard, the machine must be isolated from all power sources."
+          ]
+        },
+        "required_conditions": [
+          "The answer must identify TCK-0044 as the active ticket linked to the specified alarm.",
+          "The answer must report the expected ticket type, status, priority, and owner role.",
+          "The answer must distinguish alarm ID ALM-0111 from alarm code AL061_LEFT_FRONT_DOOR_OPEN.",
+          "The answer must state that the related alarm is High severity and Open.",
+          "The answer must cite page 20 of 17579_manual_EN.pdf for the conditional emergency-stop instruction and the prohibition on operator intervention in electrical or pneumatic equipment.",
+          "The answer must cite page 27 of 17579_manual_EN.pdf for the general fixed-guard and power-isolation requirements.",
+          "The answer must present the manual passages as relevant general safety guidance rather than an exact AL061 procedure.",
+          "The answer must state that the available evidence does not provide a diagnosis, repair procedure, completed work, or expected completion date."
+        ],
+        "forbidden_claims": [
+          "The answer must not claim that AL061 is explicitly documented on pages 20 or 27.",
+          "The answer must not claim that the left front door is the fixed guard described on page 27.",
+          "The answer must not claim that the door itself, its sensor, or its interlock is known to be faulty.",
+          "The answer must not claim that any repair or inspection has already been performed.",
+          "The answer must not claim that an emergency stop alone makes the machine safe for maintenance or access to a guarded area.",
+          "The answer must not invent a cause, corrective action, responsible technician, required spare part, or expected completion date.",
+          "The answer must not include tickets, alarms, or manual content belonging to another machine."
+        ]
+      }
+    },
+    {
+      "id": "company_orders_visible_to_full_user_cmp001_001",
+      "run": 1,
+      "category": "orders",
+      "question": "Considering the entire dataset, what orders are visible to USR-001, and what are their current order and shipment statuses?\n",
+      "status": "completed",
+      "latency_ms": 28910.3,
+      "expected_agents": [
+        "orders"
+      ],
+      "actual_agents": [
+        "orders"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "ORD-2026-0006 \u2013 order status: Delivered, shipment status: Delivered  \nORD-2025-0004 \u2013 order status: Closed, shipment status: Installed  \nORD-2025-0001 \u2013 order status: Closed, shipment status: Installed  \n\nThese are the orders returned in the dataset and their current order and shipment statuses. The evidence does not provide additional context about why the orders have these statuses or whether any further actions are required.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "orders.orders"
+        ],
+        "executed_operations": [
+          "orders.orders"
+        ]
+      },
+      "automatic_checks": {
+        "status": "passed",
+        "problems": []
+      },
+      "review": {
+        "expected_facts": {
+          "company_id": "CMP-001",
+          "order_count": 3,
+          "orders": [
+            {
+              "order_id": "ORD-2025-0001",
+              "quote_id": "QTE-2025-0001",
+              "order_status": "Closed",
+              "shipment_status": "Installed"
+            },
+            {
+              "order_id": "ORD-2025-0004",
+              "quote_id": "QTE-2025-0005",
+              "order_status": "Closed",
+              "shipment_status": "Installed"
+            },
+            {
+              "order_id": "ORD-2026-0006",
+              "quote_id": "QTE-2026-0009",
+              "order_status": "Delivered",
+              "shipment_status": "Delivered"
+            }
+          ]
+        },
+        "required_conditions": [
+          "The answer must authorize the commercial request using the authenticated user context.",
+          "The answer must consider the entire order dataset for CMP-001.",
+          "The answer must return exactly the three expected orders.",
+          "The answer must keep order status and shipment status as distinct fields.",
+          "The answer must report the expected quote association and statuses for every order."
+        ],
+        "forbidden_claims": [
+          "The answer must not include orders belonging to another company.",
+          "The answer must not interpret Closed as the shipment status of ORD-2025-0001 or ORD-2025-0004.",
+          "The answer must not interpret Delivered as proof that ORD-2026-0006 was installed.",
+          "The answer must not invent prices, delivery dates, items, or fulfilment details that were not requested or retrieved."
+        ]
+      }
+    },
+    {
+      "id": "approved_quote_without_order_cmp001_001",
+      "run": 1,
+      "category": "orders",
+      "question": "Which approved quotation for CMP-001 never became an order, and what was included in its approved revision?\n",
+      "status": "completed",
+      "latency_ms": 46954.3,
+      "expected_agents": [
+        "orders"
+      ],
+      "actual_agents": [],
+      "missing_agents": [
+        "orders"
+      ],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "I could not safely create an evidence plan. Please rephrase the request with the relevant machine, alarm, ticket, order, or quote identifier.",
+      "trace": {
+        "planner_action": null,
+        "planned_operations": [],
+        "executed_operations": []
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: orders."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "company_id": "CMP-001",
+          "quote_id": "QTE-2025-0008",
+          "approved_revision_id": "QREV-0014",
+          "approved_revision_number": 1,
+          "revision_status": "Approved",
+          "discount_rate": 0.02,
+          "currency": "EUR",
+          "order_created": false,
+          "items": [
+            {
+              "quote_line_id": "QLN-0032",
+              "description": "Centrifugal caps sorter exit mouth, 33 mm cap format",
+              "net_price": 4174.8
+            },
+            {
+              "quote_line_id": "QLN-0033",
+              "description": "Compensating spring set, 20 closure heads",
+              "net_price": 3116.4
+            }
+          ],
+          "net_total": 7291.2
+        },
+        "required_conditions": [
+          "The answer must consider only quotations and orders belonging to CMP-001.",
+          "The answer must identify QTE-2025-0008 as approved without a related order.",
+          "The answer must identify QREV-0014 as revision 1 with status Approved and a 2 percent discount rate.",
+          "The answer must report both expected line items and their net prices.",
+          "The answer must calculate the net total as EUR 7291.20 by summing the stored line prices.",
+          "The answer must state that no order was created from the quotation."
+        ],
+        "forbidden_claims": [
+          "The answer must not treat Approved as equivalent to ordered, purchased, delivered, or installed.",
+          "The answer must not apply the 2 percent discount again to the stored line prices.",
+          "The answer must not invent an order identifier or order status for QTE-2025-0008.",
+          "The answer must not include quotation or order data belonging to another company."
+        ]
+      }
+    },
+    {
+      "id": "cap_alarms_related_draft_quote_mch0001_001",
+      "run": 1,
+      "category": "multi_agent",
+      "question": "Considering the entire dataset, does CMP-001 have any quotation or order related to the recurring cap-feeding problems recorded for MCH-0001, what is its current commercial status and value, and can it be concluded that the proposed items were purchased or would resolve the alarms?\n",
+      "status": "completed",
+      "latency_ms": 30297.4,
+      "expected_agents": [
+        "iot",
+        "iot",
+        "orders"
+      ],
+      "actual_agents": [],
+      "missing_agents": [
+        "iot",
+        "orders"
+      ],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "I\u2019m sorry, but I don\u2019t have access to that information.",
+      "trace": {
+        "planner_action": "answer_without_evidence",
+        "planned_operations": [
+          "manuals.search"
+        ],
+        "executed_operations": [
+          "manuals.search"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: iot, orders."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0001",
+          "related_area": "Cap feeding and cap checking",
+          "quote_id": "QTE-2026-0014",
+          "quote_description": "Twin chute cap feeding upgrade and overturned cap ejection - Bottling Line 3",
+          "current_revision_id": "QREV-0024",
+          "current_revision_number": 1,
+          "revision_status": "Draft",
+          "discount_rate": 0,
+          "valid_until": "2026-08-27",
+          "currency": "EUR",
+          "items": [
+            {
+              "quote_line_id": "QLN-0057",
+              "description": "Twin-chute cap release photocell replacement kit",
+              "net_price": 6200
+            },
+            {
+              "quote_line_id": "QLN-0058",
+              "description": "Overturned cap ejection device revision, pick and place",
+              "net_price": 4750
+            }
+          ],
+          "net_total": 10950,
+          "order_created": false,
+          "causal_relationship_established": false,
+          "technical_effectiveness_established": false
+        },
+        "required_conditions": [
+          "The answer must consider the entire available alarm, quotation, revision, line, and order data in scope.",
+          "The answer must report the four expected recurring alarm patterns for MCH-0001.",
+          "The answer must identify QTE-2026-0014 as thematically related to cap feeding and cap checking.",
+          "The answer must state that QREV-0024 is the current and only revision and that its status is Draft.",
+          "The answer must report both expected line items and calculate their net total as EUR 10950.",
+          "The answer must state that no order is linked to QTE-2026-0014.",
+          "The answer must distinguish a thematic relationship from evidence of a causal relationship or technical effectiveness."
+        ],
+        "forbidden_claims": [
+          "The answer must not claim that QTE-2026-0014 was created because of the expected alarm events.",
+          "The answer must not claim that the cap-release photocell or overturned-cap ejection device is known to be faulty.",
+          "The answer must not claim that the proposed items would resolve the recorded alarms.",
+          "The answer must not describe the Draft quotation as approved, ordered, purchased, delivered, or installed.",
+          "The answer must not invent an order linked to QTE-2026-0014.",
+          "The answer must not include operational or commercial data belonging to another company."
+        ]
+      }
+    }
+  ]
+}

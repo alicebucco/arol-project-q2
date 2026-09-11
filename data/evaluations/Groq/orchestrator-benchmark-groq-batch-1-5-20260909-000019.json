@@ -1,0 +1,317 @@
+{
+  "generated_at": "2026-09-09T19:51:30.049359+00:00",
+  "provider": {
+    "base_url": "https://api.groq.com/openai/v1",
+    "model": "openai/gpt-oss-20b"
+  },
+  "case_count": 5,
+  "repetitions": 1,
+  "metrics": {
+    "attempts": 5,
+    "completed": 5,
+    "execution_errors": 0,
+    "automatic_check_failures": 3,
+    "automatic_check_pass_rate": 0.4,
+    "mean_latency_ms": 28109.3
+  },
+  "problem_cases": [
+    "resolved_ticket_alarms_mch0001_001",
+    "undocumented_alarm_guidance_mch0001_001",
+    "observed_hours_maintenance_mch0003_001"
+  ],
+  "cases": [
+    {
+      "id": "resolved_ticket_alarms_mch0001_001",
+      "run": 1,
+      "category": "multi_agent",
+      "question": "Considering the entire dataset, which alarms recorded for MCH-0001 led to the creation of a ticket that was resolved?\n",
+      "status": "completed",
+      "latency_ms": 11846.6,
+      "expected_agents": [
+        "iot",
+        "service"
+      ],
+      "actual_agents": [],
+      "missing_agents": [
+        "iot",
+        "service"
+      ],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "I\u2019m sorry, but I don\u2019t have access to that information.",
+      "trace": {
+        "planner_action": null,
+        "planned_operations": [
+          "manuals.search"
+        ],
+        "executed_operations": [
+          "manuals.search"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: iot, service."
+        ]
+      },
+      "review": {
+        "expected_facts": null,
+        "required_conditions": [
+          "The answer must consider the entire dataset.",
+          "The answer must consider only alarms belonging to MCH-0001.",
+          "Every returned alarm must be linked to a ticket whose status is Resolved.",
+          "The answer must return exactly the four expected alarm codes.",
+          "The answer must report one resolved ticket for each expected alarm code."
+        ],
+        "forbidden_claims": [
+          "The answer must not include alarms linked only to open or unresolved tickets.",
+          "The answer must not include data belonging to other machines.",
+          "The answer must not confuse the number of resolved tickets with the total number of alarm events."
+        ]
+      }
+    },
+    {
+      "id": "alarm_occurrence_count_mch0001_001",
+      "run": 1,
+      "category": "alarm_analysis",
+      "question": "Considering the entire dataset, how many times was the AL082_MINIMUM_CAPS_LEVEL alarm recorded for MCH-0001?\n",
+      "status": "completed",
+      "latency_ms": 24490.6,
+      "expected_agents": [
+        "iot"
+      ],
+      "actual_agents": [
+        "iot"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "The alarm code AL082_MINIMUM_CAPS_LEVEL was recorded 5 times for machine MCH\u20110001.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "iot.count_alarms"
+        ],
+        "executed_operations": [
+          "iot.count_alarms"
+        ]
+      },
+      "automatic_checks": {
+        "status": "passed",
+        "problems": []
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0001",
+          "alarm_code": "AL082_MINIMUM_CAPS_LEVEL",
+          "occurrences": 5
+        },
+        "required_conditions": [
+          "The answer must consider the entire dataset.",
+          "The answer must count only events belonging to MCH-0001.",
+          "The answer must state that AL082_MINIMUM_CAPS_LEVEL was recorded 5 times."
+        ],
+        "forbidden_claims": [
+          "The answer must not count alarms belonging to other machines.",
+          "The answer must not interpret 5 as the number of tickets.",
+          "The answer must not add causes or procedures that were not requested."
+        ]
+      }
+    },
+    {
+      "id": "undocumented_alarm_guidance_mch0001_001",
+      "run": 1,
+      "category": "alarm_guidance",
+      "question": "Can you explain what the AL083_FALLEN_BOTTLE_ALARM error code means for machine MCH-0001?\n",
+      "status": "completed",
+      "latency_ms": 32861.6,
+      "expected_agents": [
+        "iot",
+        "manuals"
+      ],
+      "actual_agents": [
+        "iot"
+      ],
+      "missing_agents": [
+        "manuals"
+      ],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [],
+      "answer": "The alarm code **AL083_FALLEN_BOTTLE_ALARM** on machine **MCH\u20110001** is identified as a \u201cFallen bottle alarm\u201d. This indicates that the system has detected a bottle that has fallen or is no longer in its expected position.  \n\nNo additional evidence is available to explain why the bottle fell, what corrective action is required, or whether the machine is safe to operate. Therefore, the meaning of the code is limited to the detection of a fallen bottle; it does not provide a causal conclusion or repair guidance.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "iot.alarm_meaning"
+        ],
+        "executed_operations": [
+          "iot.alarm_meaning"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: manuals."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0001",
+          "alarm_code": "AL083_FALLEN_BOTTLE_ALARM",
+          "readable_meaning": "Fallen bottle alarm",
+          "exact_manual_documentation_found": false
+        },
+        "required_conditions": [
+          "The answer must explain that the readable code name refers to a fallen bottle alarm.",
+          "The answer must clarify that this meaning is inferred from the code name.",
+          "The answer must state that AL083 was not found explicitly in the available manual.",
+          "The answer must state that specific causes or procedures cannot be confirmed."
+        ],
+        "forbidden_claims": [
+          "The answer must not claim that AL083 is explicitly documented in the manual.",
+          "The answer must not invent the cause of the fallen bottle.",
+          "The answer must not invent checks or recovery procedures.",
+          "The answer must not present semantically similar passages as confirmed documentation for AL083."
+        ]
+      }
+    },
+    {
+      "id": "maintenance_man_qualities_mch0001_001",
+      "run": 1,
+      "category": "manuals",
+      "question": "What qualities should a Maintenance Man have?\n",
+      "status": "completed",
+      "latency_ms": 23058.6,
+      "expected_agents": [
+        "manuals"
+      ],
+      "actual_agents": [
+        "manuals"
+      ],
+      "missing_agents": [],
+      "reported_manual_sources": [
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 24
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 94
+        },
+        {
+          "file": "15610_manual_EN.pdf",
+          "page": 23
+        }
+      ],
+      "missing_expected_sources": [],
+      "answer": "I found authorised manual evidence, but could not generate a validated summary. Please review the sources below.",
+      "trace": {
+        "planner_action": "answer_without_evidence",
+        "planned_operations": [
+          "manuals.search"
+        ],
+        "executed_operations": [
+          "manuals.search"
+        ]
+      },
+      "automatic_checks": {
+        "status": "passed",
+        "problems": []
+      },
+      "review": {
+        "expected_facts": [
+          "A Maintenance Man must have good technical preparation.",
+          "A Maintenance Man must have suitable working experience in the relevant field.",
+          "A Maintenance Man must have specific mechanical and electrical technical knowledge.",
+          "The required knowledge must be suitable for the operations described in the manual."
+        ],
+        "required_conditions": [
+          "The answer must be based on the manual associated with MCH-0001.",
+          "The answer must include a citation to page 24 of 15610_manual_EN.pdf.",
+          "The answer must preserve the meaning of the documented requirements without adding unsupported qualifications."
+        ],
+        "forbidden_claims": [
+          "The answer must not invent certifications, degrees, licences, or training requirements not stated in the source passage.",
+          "The answer must not use operational, alarm, service, or commercial data.",
+          "The answer must not cite a different manual as the supporting source."
+        ]
+      }
+    },
+    {
+      "id": "observed_hours_maintenance_mch0003_001",
+      "run": 1,
+      "category": "multi_agent",
+      "question": "Based on the productive hours observed for MCH-0003, which documented maintenance thresholds have been reached, and which activities does the manual associate with them?\n",
+      "status": "completed",
+      "latency_ms": 48289.3,
+      "expected_agents": [
+        "iot",
+        "service",
+        "manuals"
+      ],
+      "actual_agents": [
+        "iot",
+        "manuals"
+      ],
+      "missing_agents": [
+        "service"
+      ],
+      "reported_manual_sources": [],
+      "missing_expected_sources": [
+        {
+          "file": "17579_manual_EN.pdf",
+          "page": 97
+        }
+      ],
+      "answer": "Productive hours observed for machine MCH\u20110003: 321.53 hours (from 2026\u201107\u201106 to 2026\u201108\u201104).  \nThe manual specifies maintenance intervals in working hours. The thresholds that are lower than or equal to the observed hours are:\n\n1. **Every 40 working hours** \u2013 \u201cPneumatic system check. Check the air supply pressure to the various utilization points. Check by the gauges that the pressure reducers are adjusted at the work pressure. Drain the possible condensate collected under the discharge filter. Check the filter clogging. If necessary, replace it.\u201d\n\n2. **Every 120 working hours** \u2013 \u201cHeads rollers check. Check the perfect rotation of the skirting and threading rollers (they must turn freely). Check the closure head rollers springs. Check the efficiency of the springs in general and replace them if necessary.\u201d\n\nThe 1000\u2011, 6000\u2011, and 12000\u2011hour intervals are not reached with the current telemetry window.\n\nNo evidence of service calls or orders relating to MCH\u20110003 was found in the retrieved data.  \nThe manual guidance does not prove that the maintenance has actually been performed; it only documents what is recommended at those intervals.",
+      "trace": {
+        "planner_action": "retrieve_evidence",
+        "planned_operations": [
+          "iot.observed_productive_hours",
+          "manuals.maintenance_requirements"
+        ],
+        "executed_operations": [
+          "iot.observed_productive_hours",
+          "manuals.maintenance_requirements"
+        ]
+      },
+      "automatic_checks": {
+        "status": "failed",
+        "problems": [
+          "Missing expected agents: service.",
+          "Missing expected manual citations."
+        ]
+      },
+      "review": {
+        "expected_facts": {
+          "machine_id": "MCH-0003",
+          "observed_productive_hours": 321.53,
+          "periodic_interval_hours": 40,
+          "latest_reached_periodic_interval_hours": 320,
+          "next_documented_threshold_hours": 500,
+          "documented_activities": [
+            "Check the operation of the safety devices.",
+            "Check the pneumatic system."
+          ],
+          "maintenance_completion_history_available": false
+        },
+        "required_conditions": [
+          "The answer must describe 321.53 hours as productive hours observed in the available telemetry window.",
+          "The answer must state that the 40-hour maintenance interval has been reached repeatedly.",
+          "The answer must identify 320 hours as the latest reached 40-hour interval.",
+          "The answer must identify 500 hours as the next documented threshold.",
+          "The answer must mention checking the operation of the safety devices.",
+          "The answer must mention checking the pneumatic system.",
+          "The answer must cite page 97 of 17579_manual_EN.pdf for the documented 40-hour activities.",
+          "The answer must clarify that the available data does not show whether these maintenance activities have already been completed."
+        ],
+        "forbidden_claims": [
+          "The answer must not describe 321.53 hours as the machine's lifetime operating hours.",
+          "The answer must not claim with certainty that maintenance is overdue.",
+          "The answer must not claim that the 500-hour threshold has been reached.",
+          "The answer must not invent additional maintenance activities.",
+          "The answer must not claim that the maintenance completion history is available."
+        ]
+      }
+    }
+  ]
+}
